@@ -1,0 +1,1994 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="Application de gestion pour banque alimentaire">
+  <meta name="theme-color" content="#2E5CFF">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Banque Alim">
+  
+  <title>Banque Alimentaire - Fontenay</title>
+  
+  <link rel="manifest" href="/manifest.json">
+  
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+        'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+        sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+    }
+    
+    #root {
+      min-height: 100vh;
+    }
+
+    /* Amélioration des inputs sur mobile */
+    input, select, textarea, button {
+      font-size: 16px; /* Évite le zoom automatique sur iOS */
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const normalizeString = (str) => {
+      return str
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+    };
+
+    const areNamesEquivalent = (name1, name2) => {
+      return normalizeString(name1) === normalizeString(name2);
+    };
+
+    function BanqueAlimentaireApp() {
+      const [inventory, setInventory] = useState(() => {
+        const saved = localStorage.getItem('ba_inventory');
+        return saved ? JSON.parse(saved) : [];
+      });
+      
+      const [boxTemplates, setBoxTemplates] = useState(() => {
+        const saved = localStorage.getItem('ba_templates');
+        return saved ? JSON.parse(saved) : [];
+      });
+      
+      const [distributions, setDistributions] = useState(() => {
+        const saved = localStorage.getItem('ba_distributions');
+        return saved ? JSON.parse(saved) : [];
+      });
+      
+      const [activeTab, setActiveTab] = useState('inventory');
+      const [newItem, setNewItem] = useState({ item_name: '', quantity: 0, unit: 'unités', price: 0 });
+      const [editingItem, setEditingItem] = useState(null);
+      
+      const [newTemplate, setNewTemplate] = useState({ template_name: '', description: '', items: [] });
+      const [newTemplateItem, setNewTemplateItem] = useState({ item_name: '', quantity: 0 });
+      
+      const [newDistribution, setNewDistribution] = useState({ 
+        template_id: '', 
+        distribution_date: '', 
+        box_count: 0,
+        notes: '' 
+      });
+      
+      const [selectedDistribution, setSelectedDistribution] = useState(null);
+      const [distributionNeeds, setDistributionNeeds] = useState([]);
+      
+      const [menuOpen, setMenuOpen] = useState(false);
+      
+      const [invoices, setInvoices] = useState(() => {
+        const saved = localStorage.getItem('ba_invoices');
+        return saved ? JSON.parse(saved) : [];
+      });
+      
+      const [showInvoices, setShowInvoices] = useState(false);
+      
+      const [newInvoice, setNewInvoice] = useState({
+        supplier: '',
+        invoice_number: '',
+        invoice_date: '',
+        file: null,
+        fileData: null,
+        items: [],
+        total: 0,
+        notes: ''
+      });
+      
+      const [newInvoiceItem, setNewInvoiceItem] = useState({
+        item_name: '',
+        quantity: 0,
+        unit: 'unités',
+        price: 0
+      });
+
+      useEffect(() => {
+        localStorage.setItem('ba_inventory', JSON.stringify(inventory));
+      }, [inventory]);
+
+      useEffect(() => {
+        localStorage.setItem('ba_templates', JSON.stringify(boxTemplates));
+      }, [boxTemplates]);
+
+      useEffect(() => {
+        localStorage.setItem('ba_distributions', JSON.stringify(distributions));
+      }, [distributions]);
+
+      useEffect(() => {
+        localStorage.setItem('ba_invoices', JSON.stringify(invoices));
+      }, [invoices]);
+
+      const addToInventory = () => {
+        if (newItem.item_name && newItem.quantity > 0) {
+          const existingIndex = inventory.findIndex(item => 
+            areNamesEquivalent(item.item_name, newItem.item_name)
+          );
+
+          if (existingIndex !== -1) {
+            const updated = [...inventory];
+            updated[existingIndex].quantity += parseFloat(newItem.quantity);
+            if (newItem.price > 0) {
+              updated[existingIndex].price = newItem.price;
+            }
+            setInventory(updated);
+            alert(`✅ Quantité mise à jour : ${updated[existingIndex].item_name} = ${updated[existingIndex].quantity} ${updated[existingIndex].unit}`);
+          } else {
+            setInventory([...inventory, { ...newItem, id: Date.now() }]);
+          }
+          
+          setNewItem({ item_name: '', quantity: 0, unit: 'unités', price: 0 });
+        }
+      };
+
+      const updateInventoryItem = (id, quantity) => {
+        setInventory(inventory.map(item => 
+          item.id === id ? { ...item, quantity: parseFloat(quantity) } : item
+        ));
+        setEditingItem(null);
+      };
+
+      const deleteInventoryItem = (id) => {
+        if (confirm('Supprimer cet article ?')) {
+          setInventory(inventory.filter(item => item.id !== id));
+        }
+      };
+
+      const addToNewTemplate = () => {
+        if (newTemplateItem.item_name && newTemplateItem.quantity > 0) {
+          const existingIndex = newTemplate.items.findIndex(item =>
+            areNamesEquivalent(item.item_name, newTemplateItem.item_name)
+          );
+
+          if (existingIndex !== -1) {
+            const updatedItems = [...newTemplate.items];
+            updatedItems[existingIndex].quantity += parseFloat(newTemplateItem.quantity);
+            setNewTemplate({ ...newTemplate, items: updatedItems });
+            alert(`✅ Quantité mise à jour`);
+          } else {
+            setNewTemplate({
+              ...newTemplate,
+              items: [...newTemplate.items, { ...newTemplateItem }]
+            });
+          }
+          
+          setNewTemplateItem({ item_name: '', quantity: 0 });
+        }
+      };
+
+      const removeFromNewTemplate = (index) => {
+        setNewTemplate({
+          ...newTemplate,
+          items: newTemplate.items.filter((_, i) => i !== index)
+        });
+      };
+
+      const saveBoxTemplate = () => {
+        if (newTemplate.template_name && newTemplate.items.length > 0) {
+          setBoxTemplates([...boxTemplates, { ...newTemplate, id: Date.now() }]);
+          setNewTemplate({ template_name: '', description: '', items: [] });
+          alert('✅ Modèle créé !');
+        }
+      };
+
+      const deleteBoxTemplate = (id) => {
+        if (confirm('Supprimer ce modèle ?')) {
+          setBoxTemplates(boxTemplates.filter(t => t.id !== id));
+        }
+      };
+
+      const createDistribution = () => {
+        if (newDistribution.template_id && newDistribution.distribution_date && newDistribution.box_count > 0) {
+          const template = boxTemplates.find(t => t.id === parseInt(newDistribution.template_id));
+          setDistributions([...distributions, {
+            ...newDistribution,
+            id: Date.now(),
+            template_name: template.template_name,
+            status: 'planned'
+          }]);
+          setNewDistribution({ template_id: '', distribution_date: '', box_count: 0, notes: '' });
+          alert('✅ Distribution planifiée !');
+        }
+      };
+
+      const viewDistributionNeeds = (distributionId) => {
+        const dist = distributions.find(d => d.id === distributionId);
+        const template = boxTemplates.find(t => t.id === parseInt(dist.template_id));
+        
+        const needs = template.items.map(templateItem => {
+          const inventoryItem = inventory.find(invItem =>
+            areNamesEquivalent(invItem.item_name, templateItem.item_name)
+          );
+          
+          const total_needed = templateItem.quantity * dist.box_count;
+          const available = inventoryItem ? inventoryItem.quantity : 0;
+          const missing = Math.max(0, total_needed - available);
+          const price = inventoryItem ? inventoryItem.price || 0 : 0;
+          const missingCost = missing * price;
+          
+          return {
+            item_name: templateItem.item_name,
+            quantity_per_box: templateItem.quantity,
+            total_needed,
+            available,
+            missing,
+            sufficient: missing === 0,
+            price,
+            missingCost
+          };
+        });
+        
+        setDistributionNeeds(needs);
+        setSelectedDistribution(distributionId);
+      };
+
+      const deleteDistribution = (id) => {
+        if (confirm('Supprimer cette distribution ?')) {
+          setDistributions(distributions.filter(d => d.id !== id));
+        }
+      };
+
+      const clearAllData = () => {
+        if (confirm('⚠️ Effacer TOUTES les données ?')) {
+          if (confirm('Vraiment sûr ?')) {
+            localStorage.clear();
+            setInventory([]);
+            setBoxTemplates([]);
+            setDistributions([]);
+            alert('✅ Données effacées');
+          }
+        }
+      };
+
+
+      // NOUVELLE FONCTION : Générer PDF du carton
+      const generateBoxPDF = (template) => {
+        try {
+          const { jsPDF } = window.jspdf;
+          const doc = new jsPDF();
+          
+          doc.setFontSize(22);
+          doc.setFont(undefined, 'bold');
+          doc.text('Banque Alimentaire de Fontenay', 105, 20, { align: 'center' });
+          
+          doc.setFontSize(18);
+          doc.text('Modele: ' + template.template_name, 105, 35, { align: 'center' });
+          
+          if (template.description) {
+            doc.setFontSize(12);
+            doc.setFont(undefined, 'normal');
+            doc.text(template.description, 105, 45, { align: 'center' });
+          }
+          
+          doc.setLineWidth(0.5);
+          doc.line(20, 50, 190, 50);
+          
+          doc.setFontSize(14);
+          doc.setFont(undefined, 'bold');
+          doc.text('Article', 25, 60);
+          doc.text('Quantite', 150, 60);
+          
+          doc.setLineWidth(0.3);
+          doc.line(20, 63, 190, 63);
+          
+          let yPos = 73;
+          doc.setFontSize(12);
+          doc.setFont(undefined, 'normal');
+          
+          template.items.forEach((item) => {
+            if (yPos > 270) {
+              doc.addPage();
+              yPos = 20;
+            }
+            
+            doc.rect(22, yPos - 4, 4, 4);
+            doc.text(item.item_name, 30, yPos);
+            doc.text(String(item.quantity), 155, yPos);
+            
+            yPos += 10;
+          });
+          
+          doc.setFontSize(10);
+          doc.setFont(undefined, 'italic');
+          const today = new Date().toLocaleDateString('fr-FR');
+          doc.text('Genere le ' + today, 105, 285, { align: 'center' });
+          
+          doc.save('carton-' + template.template_name + '.pdf');
+          alert('PDF telecharge !');
+        } catch (error) {
+          console.error('Erreur PDF:', error);
+          alert('Erreur lors de la generation du PDF');
+        }
+      };
+
+
+      // FONCTIONS FACTURES
+      const handleInvoiceFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            setNewInvoice({
+              ...newInvoice,
+              file: file.name,
+              fileData: event.target.result
+            });
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+
+      const addToNewInvoice = () => {
+        if (newInvoiceItem.item_name && newInvoiceItem.quantity > 0 && newInvoiceItem.price > 0) {
+          const existingIndex = newInvoice.items.findIndex(item =>
+            areNamesEquivalent(item.item_name, newInvoiceItem.item_name)
+          );
+
+          let updatedItems;
+          if (existingIndex !== -1) {
+            updatedItems = [...newInvoice.items];
+            updatedItems[existingIndex].quantity += parseFloat(newInvoiceItem.quantity);
+            updatedItems[existingIndex].price = parseFloat(newInvoiceItem.price);
+            alert('✅ Quantité mise à jour');
+          } else {
+            updatedItems = [...newInvoice.items, { ...newInvoiceItem }];
+          }
+          
+          const total = updatedItems.reduce((sum, item) => 
+            sum + (item.quantity * item.price), 0
+          );
+          
+          setNewInvoice({
+            ...newInvoice,
+            items: updatedItems,
+            total: total
+          });
+          
+          setNewInvoiceItem({ item_name: '', quantity: 0, unit: 'unités', price: 0 });
+        }
+      };
+
+      const removeFromNewInvoice = (index) => {
+        const updatedItems = newInvoice.items.filter((_, i) => i !== index);
+        const total = updatedItems.reduce((sum, item) => 
+          sum + (item.quantity * item.price), 0
+        );
+        setNewInvoice({
+          ...newInvoice,
+          items: updatedItems,
+          total: total
+        });
+      };
+
+      const saveInvoice = () => {
+        if (newInvoice.supplier && newInvoice.invoice_date && newInvoice.items.length > 0) {
+          setInvoices([...invoices, { ...newInvoice, id: Date.now() }]);
+          setNewInvoice({
+            supplier: '',
+            invoice_number: '',
+            invoice_date: '',
+            file: null,
+            fileData: null,
+            items: [],
+            total: 0,
+            notes: ''
+          });
+          setShowInvoices(false);
+          alert('✅ Facture enregistrée !');
+        }
+      };
+
+      const deleteInvoice = (id) => {
+        if (confirm('Supprimer cette facture ?')) {
+          setInvoices(invoices.filter(inv => inv.id !== id));
+        }
+      };
+
+      const addInvoiceToStock = (invoice) => {
+        if (confirm(`Ajouter les ${invoice.items.length} articles au stock ?`)) {
+          let updatedInventory = [...inventory];
+          
+          invoice.items.forEach(invoiceItem => {
+            const existingIndex = updatedInventory.findIndex(item =>
+              areNamesEquivalent(item.item_name, invoiceItem.item_name)
+            );
+            
+            if (existingIndex !== -1) {
+              updatedInventory[existingIndex].quantity += parseFloat(invoiceItem.quantity);
+              updatedInventory[existingIndex].price = invoiceItem.price;
+            } else {
+              updatedInventory.push({
+                id: Date.now() + Math.random(),
+                item_name: invoiceItem.item_name,
+                quantity: parseFloat(invoiceItem.quantity),
+                unit: invoiceItem.unit,
+                price: invoiceItem.price
+              });
+            }
+          });
+          
+          setInventory(updatedInventory);
+          
+          setInvoices(invoices.map(inv => 
+            inv.id === invoice.id ? { ...inv, addedToStock: true } : inv
+          ));
+          
+          alert('✅ Stock mis à jour !');
+        }
+      };
+
+      return (
+        <div style={{
+          minHeight: '100vh',
+          background: 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)',
+          fontFamily: '"Inter", sans-serif',
+          paddingBottom: '20px'
+        }}>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+          
+          <div style={{ maxWidth: '100%', margin: '0 auto' }}>
+            <header style={{
+              padding: '15px 20px',
+              color: 'white',
+              background: 'rgba(0,0,0,0.1)',
+              marginBottom: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '15px'
+            }}>
+              <button
+                onClick={() => setMenuOpen(!menuOpen)}
+                style={{
+                  padding: '10px',
+                  background: 'rgba(255,255,255,0.25)',
+                  color: 'white',
+                  border: '2px solid rgba(255,255,255,0.5)',
+                  borderRadius: '10px',
+                  cursor: 'pointer',
+                  fontSize: '24px',
+                  lineHeight: '1',
+                  width: '48px',
+                  height: '48px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}
+              >
+                {menuOpen ? '✕' : '☰'}
+              </button>
+              
+              <div style={{ flex: 1 }}>
+                <h1 style={{ fontSize: '1.5rem', fontWeight: '800', marginBottom: '5px' }}>
+                  Banque Alimentaire
+                </h1>
+                <p style={{ fontSize: '0.8rem', opacity: 0.9 }}>
+                  Fontenay-sous-Bois
+                </p>
+              </div>
+            </header>
+
+            {menuOpen && (
+              <>
+                <div 
+                  onClick={() => setMenuOpen(false)}
+                  style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0,0,0,0.5)',
+                    zIndex: 998
+                  }}
+                />
+                <div style={{
+                  position: 'fixed',
+                  top: '80px',
+                  left: '20px',
+                  background: 'white',
+                  borderRadius: '12px',
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                  zIndex: 999,
+                  minWidth: '200px',
+                  overflow: 'hidden'
+                }}>
+                  <button
+                    onClick={() => {
+                      setShowInvoices(true);
+                      setMenuOpen(false);
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '15px 20px',
+                      background: 'white',
+                      border: 'none',
+                      borderBottom: '1px solid #e2e8f0',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      textAlign: 'left',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px'
+                    }}
+                  >
+                    💳 Factures
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      alert('Paramètres (à venir)');
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '15px 20px',
+                      background: 'white',
+                      border: 'none',
+                      borderBottom: '1px solid #e2e8f0',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      textAlign: 'left',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px'
+                    }}
+                  >
+                    ⚙️ Paramètres
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (confirm('Se déconnecter ?')) {
+                        alert('Déconnexion (fonctionnalité à venir)');
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '15px 20px',
+                      background: 'white',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      textAlign: 'left',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      color: '#EF4444'
+                    }}
+                  >
+                    🚪 Déconnexion
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Onglets optimisés mobile */}
+            <div style={{
+              display: 'flex',
+              gap: '8px',
+              padding: '0 15px',
+              marginBottom: '20px',
+              overflowX: 'auto'
+            }}>
+              {[
+                { id: 'inventory', label: 'Inventaire', icon: '📦' },
+                { id: 'templates', label: 'Cartons', icon: '🛒' },
+                { id: 'distributions', label: 'Distributions', icon: '📅' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  style={{
+                    flex: '1 1 auto',
+                    minWidth: '100px',
+                    padding: '12px 16px',
+                    border: 'none',
+                    borderRadius: '12px',
+                    background: activeTab === tab.id ? 'white' : 'rgba(255,255,255,0.2)',
+                    color: activeTab === tab.id ? '#2E5CFF' : 'white',
+                    fontWeight: '700',
+                    fontSize: '0.9rem',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    boxShadow: activeTab === tab.id ? '0 2px 8px rgba(0,0,0,0.15)' : 'none'
+                  }}
+                >
+                  <div>{tab.icon}</div>
+                  <div style={{ fontSize: '0.75rem', marginTop: '2px' }}>{tab.label}</div>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ 
+              background: 'white', 
+              borderRadius: '20px 20px 0 0', 
+              padding: '20px 15px',
+              minHeight: 'calc(100vh - 200px)'
+            }}>
+              
+              {/* ONGLET INVENTAIRE */}
+              {activeTab === 'inventory' && (
+                <div>
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1a202c', marginBottom: '20px' }}>
+                    📦 Stock actuel
+                  </h2>
+
+                  <div style={{
+                    background: 'linear-gradient(135deg, #2E5CFF15 0%, #4ADE8015 100%)',
+                    padding: '20px',
+                    borderRadius: '16px',
+                    marginBottom: '20px',
+                    border: '2px solid #2E5CFF30'
+                  }}>
+                    <h3 style={{ fontSize: '1rem', fontWeight: '700', marginBottom: '15px' }}>
+                      Ajouter une denrée
+                    </h3>
+                    
+                    {/* Layout vertical pour mobile */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <input
+                        type="text"
+                        placeholder="Nom de la denrée"
+                        value={newItem.item_name}
+                        onChange={(e) => setNewItem({ ...newItem, item_name: e.target.value })}
+                        style={{ 
+                          width: '100%', 
+                          padding: '14px', 
+                          border: '2px solid #cbd5e0', 
+                          borderRadius: '10px', 
+                          fontSize: '16px'
+                        }}
+                      />
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                        <input
+                          type="number"
+                          placeholder="Quantité"
+                          value={newItem.quantity || ''}
+                          onChange={(e) => setNewItem({ ...newItem, quantity: parseFloat(e.target.value) || 0 })}
+                          style={{ 
+                            width: '100%', 
+                            padding: '14px', 
+                            border: '2px solid #cbd5e0', 
+                            borderRadius: '10px', 
+                            fontSize: '16px'
+                          }}
+                        />
+                        
+                        <input
+                          type="text"
+                          placeholder="Unité"
+                          value={newItem.unit}
+                          onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
+                          style={{ 
+                            width: '100%', 
+                            padding: '14px', 
+                            border: '2px solid #cbd5e0', 
+                            borderRadius: '10px', 
+                            fontSize: '16px'
+                          }}
+                        />
+
+                        <input
+                          type="number"
+                          placeholder="Prix €"
+                          step="0.01"
+                          value={newItem.price || ''}
+                          onChange={(e) => setNewItem({ ...newItem, price: parseFloat(e.target.value) || 0 })}
+                          style={{ 
+                            width: '100%', 
+                            padding: '14px', 
+                            border: '2px solid #cbd5e0', 
+                            borderRadius: '10px', 
+                            fontSize: '16px'
+                          }}
+                        />
+                      </div>
+                      
+                      <button
+                        onClick={addToInventory}
+                        style={{
+                          width: '100%',
+                          padding: '16px',
+                          background: 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '10px',
+                          fontWeight: '700',
+                          fontSize: '16px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ➕ Ajouter
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    {inventory.length === 0 ? (
+                      <p style={{ textAlign: 'center', color: '#a0aec0', padding: '40px 20px', fontSize: '0.95rem' }}>
+                        Aucune denrée en stock.
+                      </p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {inventory.map((item) => (
+                          <div
+                            key={item.id}
+                            style={{
+                              padding: '15px',
+                              background: '#f8fafc',
+                              borderRadius: '12px',
+                              border: '2px solid #e2e8f0'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '10px' }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: '600', color: '#1a202c', fontSize: '1rem', marginBottom: '4px' }}>
+                                  {item.item_name}
+                                </div>
+                                <div style={{ fontSize: '0.85rem', color: '#718096' }}>
+                                  {item.unit} {item.price > 0 && `• ${item.price.toFixed(2)}€/${item.unit}`}
+                                </div>
+                              </div>
+                              <div style={{ fontWeight: '700', color: '#2E5CFF', fontSize: '1.4rem' }}>
+                                {item.quantity}
+                              </div>
+                            </div>
+                            
+                            {editingItem === item.id ? (
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                                <input
+                                  type="number"
+                                  defaultValue={item.quantity}
+                                  id={`edit-${item.id}`}
+                                  style={{ 
+                                    flex: 1, 
+                                    padding: '10px', 
+                                    border: '2px solid #2E5CFF', 
+                                    borderRadius: '8px',
+                                    fontSize: '16px'
+                                  }}
+                                />
+                                <button
+                                  onClick={() => {
+                                    const input = document.getElementById(`edit-${item.id}`);
+                                    updateInventoryItem(item.id, input.value);
+                                  }}
+                                  style={{ 
+                                    padding: '10px 16px', 
+                                    background: '#4ADE80', 
+                                    color: 'white', 
+                                    border: 'none', 
+                                    borderRadius: '8px', 
+                                    cursor: 'pointer',
+                                    fontSize: '18px'
+                                  }}
+                                >
+                                  ✅
+                                </button>
+                                <button
+                                  onClick={() => setEditingItem(null)}
+                                  style={{ 
+                                    padding: '10px 16px', 
+                                    background: '#f56565', 
+                                    color: 'white', 
+                                    border: 'none', 
+                                    borderRadius: '8px', 
+                                    cursor: 'pointer',
+                                    fontSize: '18px'
+                                  }}
+                                >
+                                  ❌
+                                </button>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                                <button
+                                  onClick={() => setEditingItem(item.id)}
+                                  style={{ 
+                                    flex: 1,
+                                    padding: '10px', 
+                                    background: '#edf2f7', 
+                                    border: 'none', 
+                                    borderRadius: '8px', 
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '600'
+                                  }}
+                                >
+                                  ✏️ Modifier
+                                </button>
+                                <button
+                                  onClick={() => deleteInventoryItem(item.id)}
+                                  style={{ 
+                                    flex: 1,
+                                    padding: '10px', 
+                                    background: '#fed7d7', 
+                                    border: 'none', 
+                                    borderRadius: '8px', 
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '600'
+                                  }}
+                                >
+                                  🗑️ Supprimer
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ONGLET CARTONS TYPES */}
+              {activeTab === 'templates' && (
+                <div>
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1a202c', marginBottom: '20px' }}>
+                    🛒 Modèles de cartons
+                  </h2>
+
+                  <div style={{
+                    background: 'linear-gradient(135deg, #2E5CFF15 0%, #4ADE8015 100%)',
+                    padding: '20px',
+                    borderRadius: '16px',
+                    marginBottom: '20px',
+                    border: '2px solid #2E5CFF30'
+                  }}>
+                    <h3 style={{ fontSize: '1rem', fontWeight: '700', marginBottom: '15px' }}>
+                      Créer un nouveau modèle
+                    </h3>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <input
+                        type="text"
+                        placeholder="Nom du modèle (ex: Carton Famille)"
+                        value={newTemplate.template_name}
+                        onChange={(e) => setNewTemplate({ ...newTemplate, template_name: e.target.value })}
+                        style={{
+                          width: '100%',
+                          padding: '14px',
+                          border: '2px solid #cbd5e0',
+                          borderRadius: '10px',
+                          fontSize: '16px'
+                        }}
+                      />
+                      
+                      <textarea
+                        placeholder="Description (optionnel)"
+                        value={newTemplate.description}
+                        onChange={(e) => setNewTemplate({ ...newTemplate, description: e.target.value })}
+                        style={{
+                          width: '100%',
+                          padding: '14px',
+                          border: '2px solid #cbd5e0',
+                          borderRadius: '10px',
+                          minHeight: '60px',
+                          resize: 'vertical',
+                          fontSize: '16px'
+                        }}
+                      />
+
+                      <div style={{ 
+                        background: 'white', 
+                        padding: '15px', 
+                        borderRadius: '10px',
+                        marginTop: '10px'
+                      }}>
+                        <h4 style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '10px' }}>
+                          Ajouter des denrées :
+                        </h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <input
+                            type="text"
+                            placeholder="Denrée"
+                            value={newTemplateItem.item_name}
+                            onChange={(e) => setNewTemplateItem({ ...newTemplateItem, item_name: e.target.value })}
+                            style={{ 
+                              width: '100%',
+                              padding: '12px', 
+                              border: '2px solid #cbd5e0', 
+                              borderRadius: '8px',
+                              fontSize: '16px'
+                            }}
+                          />
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px' }}>
+                            <input
+                              type="number"
+                              placeholder="Quantité"
+                              value={newTemplateItem.quantity || ''}
+                              onChange={(e) => setNewTemplateItem({ ...newTemplateItem, quantity: parseFloat(e.target.value) || 0 })}
+                              style={{ 
+                                padding: '12px', 
+                                border: '2px solid #cbd5e0', 
+                                borderRadius: '8px',
+                                fontSize: '16px'
+                              }}
+                            />
+                            <button
+                              onClick={addToNewTemplate}
+                              style={{
+                                padding: '12px 20px',
+                                background: '#2E5CFF',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                fontWeight: '700',
+                                cursor: 'pointer',
+                                fontSize: '18px'
+                              }}
+                            >
+                              ➕
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {newTemplate.items.length > 0 && (
+                        <div style={{ background: 'white', padding: '15px', borderRadius: '10px' }}>
+                          <h4 style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '10px' }}>
+                            Contenu du carton :
+                          </h4>
+                          {newTemplate.items.map((item, index) => (
+                            <div
+                              key={index}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '10px',
+                                background: '#f7fafc',
+                                borderRadius: '8px',
+                                marginBottom: '8px'
+                              }}
+                            >
+                              <span style={{ fontSize: '0.95rem' }}>
+                                {item.item_name} - <strong>{item.quantity}</strong>
+                              </span>
+                              <button
+                                onClick={() => removeFromNewTemplate(index)}
+                                style={{ 
+                                  padding: '6px 12px', 
+                                  background: '#fed7d7', 
+                                  border: 'none', 
+                                  borderRadius: '6px', 
+                                  cursor: 'pointer',
+                                  fontSize: '16px'
+                                }}
+                              >
+                                ❌
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <button
+                        onClick={saveBoxTemplate}
+                        disabled={!newTemplate.template_name || newTemplate.items.length === 0}
+                        style={{
+                          width: '100%',
+                          padding: '16px',
+                          background: newTemplate.template_name && newTemplate.items.length > 0
+                            ? 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)'
+                            : '#cbd5e0',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '10px',
+                          fontWeight: '700',
+                          fontSize: '16px',
+                          cursor: newTemplate.template_name && newTemplate.items.length > 0 ? 'pointer' : 'not-allowed',
+                          marginTop: '10px'
+                        }}
+                      >
+                        💾 Enregistrer le modèle
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    {boxTemplates.length === 0 ? (
+                      <p style={{ textAlign: 'center', color: '#a0aec0', padding: '40px 20px', fontSize: '0.95rem' }}>
+                        Aucun modèle créé.
+                      </p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        {boxTemplates.map((template) => (
+                          <div
+                            key={template.id}
+                            style={{
+                              background: '#f8fafc',
+                              borderRadius: '12px',
+                              border: '2px solid #e2e8f0',
+                              padding: '15px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
+                              <div style={{ flex: 1 }}>
+                                <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '5px' }}>
+                                  {template.template_name}
+                                </h3>
+                                {template.description && (
+                                  <p style={{ fontSize: '0.85rem', color: '#718096' }}>
+                                    {template.description}
+                                  </p>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => deleteBoxTemplate(template.id)}
+                                style={{ 
+                                  padding: '8px 12px', 
+                                  background: '#fed7d7', 
+                                  border: 'none', 
+                                  borderRadius: '8px', 
+                                  cursor: 'pointer',
+                                  height: 'fit-content',
+                                  fontSize: '16px'
+                                }}
+                              >
+                                🗑️
+                              </button>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                              <button
+                                onClick={() => generateBoxPDF(template)}
+                                style={{
+                                  flex: 1,
+                                  padding: '14px',
+                                  background: 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '10px',
+                                  fontWeight: '700',
+                                  fontSize: '15px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                📄 PDF
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setNewTemplate({
+                                    template_name: template.template_name,
+                                    description: template.description || '',
+                                    items: [...template.items]
+                                  });
+                                  deleteBoxTemplate(template.id);
+                                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                                  alert('✏️ Modifiez le carton ci-dessus, puis enregistrez-le');
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: '14px',
+                                  background: '#edf2f7',
+                                  color: '#2E5CFF',
+                                  border: '2px solid #2E5CFF',
+                                  borderRadius: '10px',
+                                  fontWeight: '700',
+                                  fontSize: '15px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ✏️ Modifier
+                              </button>
+                            </div>
+                            <div style={{ background: 'white', borderRadius: '10px', padding: '12px' }}>
+                              {template.items.map((item, index) => (
+                                <div
+                                  key={index}
+                                  style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    padding: '8px 0',
+                                    borderBottom: index < template.items.length - 1 ? '1px solid #e2e8f0' : 'none',
+                                    fontSize: '0.95rem'
+                                  }}
+                                >
+                                  <span>{item.item_name}</span>
+                                  <span style={{ fontWeight: '700', color: '#2E5CFF' }}>{item.quantity}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ONGLET DISTRIBUTIONS */}
+              {activeTab === 'distributions' && (
+                <div>
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1a202c', marginBottom: '20px' }}>
+                    📅 Distributions
+                  </h2>
+
+                  <div style={{
+                    background: 'linear-gradient(135deg, #2E5CFF15 0%, #4ADE8015 100%)',
+                    padding: '20px',
+                    borderRadius: '16px',
+                    marginBottom: '20px',
+                    border: '2px solid #2E5CFF30'
+                  }}>
+                    <h3 style={{ fontSize: '1rem', fontWeight: '700', marginBottom: '15px' }}>
+                      Planifier une distribution
+                    </h3>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <select
+                        value={newDistribution.template_id}
+                        onChange={(e) => setNewDistribution({ ...newDistribution, template_id: e.target.value })}
+                        style={{ 
+                          width: '100%',
+                          padding: '14px', 
+                          border: '2px solid #cbd5e0', 
+                          borderRadius: '10px', 
+                          background: 'white',
+                          fontSize: '16px'
+                        }}
+                      >
+                        <option value="">Sélectionner un modèle de carton</option>
+                        {boxTemplates.map(template => (
+                          <option key={template.id} value={template.id}>{template.template_name}</option>
+                        ))}
+                      </select>
+                      
+                      <input
+                        type="date"
+                        value={newDistribution.distribution_date}
+                        onChange={(e) => setNewDistribution({ ...newDistribution, distribution_date: e.target.value })}
+                        style={{ 
+                          width: '100%',
+                          padding: '14px', 
+                          border: '2px solid #cbd5e0', 
+                          borderRadius: '10px',
+                          fontSize: '16px'
+                        }}
+                      />
+                      
+                      <input
+                        type="number"
+                        placeholder="Nombre de cartons"
+                        value={newDistribution.box_count || ''}
+                        onChange={(e) => setNewDistribution({ ...newDistribution, box_count: parseInt(e.target.value) || 0 })}
+                        style={{ 
+                          width: '100%',
+                          padding: '14px', 
+                          border: '2px solid #cbd5e0', 
+                          borderRadius: '10px',
+                          fontSize: '16px'
+                        }}
+                      />
+                      
+                      <input
+                        type="text"
+                        placeholder="Notes (optionnel)"
+                        value={newDistribution.notes}
+                        onChange={(e) => setNewDistribution({ ...newDistribution, notes: e.target.value })}
+                        style={{ 
+                          width: '100%',
+                          padding: '14px', 
+                          border: '2px solid #cbd5e0', 
+                          borderRadius: '10px',
+                          fontSize: '16px'
+                        }}
+                      />
+
+                      <button
+                        onClick={createDistribution}
+                        disabled={!newDistribution.template_id || !newDistribution.distribution_date || !newDistribution.box_count}
+                        style={{
+                          width: '100%',
+                          padding: '16px',
+                          background: newDistribution.template_id && newDistribution.distribution_date && newDistribution.box_count
+                            ? 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)'
+                            : '#cbd5e0',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '10px',
+                          fontWeight: '700',
+                          fontSize: '16px',
+                          cursor: newDistribution.template_id && newDistribution.distribution_date && newDistribution.box_count ? 'pointer' : 'not-allowed'
+                        }}
+                      >
+                        📅 Planifier la distribution
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    {distributions.length === 0 ? (
+                      <p style={{ textAlign: 'center', color: '#a0aec0', padding: '40px 20px', fontSize: '0.95rem' }}>
+                        Aucune distribution planifiée.
+                      </p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        {distributions.map((dist) => (
+                          <div
+                            key={dist.id}
+                            style={{
+                              background: '#EBF8FF',
+                              border: '2px solid #2E5CFF',
+                              borderRadius: '12px',
+                              padding: '15px'
+                            }}
+                          >
+                            <div style={{ marginBottom: '15px' }}>
+                              <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '8px' }}>
+                                {dist.template_name}
+                              </h3>
+                              <div style={{ fontSize: '0.9rem', color: '#4a5568' }}>
+                                <div>📅 {new Date(dist.distribution_date).toLocaleDateString('fr-FR')}</div>
+                                <div>📦 {dist.box_count} cartons</div>
+                                {dist.notes && <div style={{ marginTop: '5px' }}>📝 {dist.notes}</div>}
+                              </div>
+                            </div>
+                            
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button
+                                onClick={() => viewDistributionNeeds(dist.id)}
+                                style={{
+                                  flex: 1,
+                                  padding: '12px',
+                                  background: 'white',
+                                  border: '2px solid #2E5CFF',
+                                  borderRadius: '8px',
+                                  fontWeight: '600',
+                                  cursor: 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                ⚠️ Voir les besoins
+                              </button>
+                              <button
+                                onClick={() => deleteDistribution(dist.id)}
+                                style={{ 
+                                  padding: '12px 16px', 
+                                  background: 'white', 
+                                  border: '2px solid #fed7d7', 
+                                  borderRadius: '8px', 
+                                  cursor: 'pointer',
+                                  fontSize: '16px'
+                                }}
+                              >
+                                🗑️
+                              </button>
+                            </div>
+
+                            {selectedDistribution === dist.id && distributionNeeds.length > 0 && (
+                              <div style={{ background: 'white', borderRadius: '10px', padding: '15px', marginTop: '15px' }}>
+                                <h4 style={{ fontSize: '1rem', fontWeight: '700', marginBottom: '12px' }}>
+                                  📊 Analyse des besoins
+                                </h4>
+                                
+                                {(() => {
+                                  const totalMissing = distributionNeeds.reduce((sum, need) => sum + need.missingCost, 0);
+                                  return totalMissing > 0 && (
+                                    <div style={{
+                                      background: '#FEF2F2',
+                                      border: '2px solid #EF4444',
+                                      borderRadius: '10px',
+                                      padding: '15px',
+                                      marginBottom: '15px'
+                                    }}>
+                                      <div style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '5px' }}>
+                                        💰 Budget manquant
+                                      </div>
+                                      <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#DC2626' }}>
+                                        {totalMissing.toFixed(2)} €
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                  {distributionNeeds.map((need, index) => (
+                                    <div
+                                      key={index}
+                                      style={{
+                                        padding: '12px',
+                                        background: need.sufficient ? '#F0FDF4' : '#FEF2F2',
+                                        border: `2px solid ${need.sufficient ? '#4ADE80' : '#EF4444'}`,
+                                        borderRadius: '8px'
+                                      }}
+                                    >
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '5px' }}>
+                                        <span style={{ fontWeight: '600', fontSize: '0.95rem' }}>
+                                          {need.sufficient ? '✅' : '⚠️'} {need.item_name}
+                                        </span>
+                                        {!need.sufficient && (
+                                          <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontWeight: '700', color: '#DC2626', fontSize: '1.1rem' }}>
+                                              -{need.missing}
+                                            </div>
+                                            {need.price > 0 && (
+                                              <div style={{ fontSize: '0.85rem', color: '#DC2626', fontWeight: '600' }}>
+                                                {need.missingCost.toFixed(2)} €
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div style={{ fontSize: '0.8rem', color: '#4a5568' }}>
+                                        Besoin: {need.total_needed} | Disponible: {need.available}
+                                        {need.price > 0 && ` | ${need.price.toFixed(2)}€/unité`}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+            </div>
+
+            {/* INTERFACE FACTURES - MODALE PLEIN ÉCRAN */}
+            {showInvoices && (
+              <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'white',
+                zIndex: 1000,
+                overflowY: 'auto'
+              }}>
+                <div style={{
+                  minHeight: '100vh',
+                  background: 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)',
+                  paddingBottom: '20px'
+                }}>
+                  <header style={{
+                    padding: '15px 20px',
+                    color: 'white',
+                    background: 'rgba(0,0,0,0.1)',
+                    marginBottom: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '15px'
+                  }}>
+                    <button
+                      onClick={() => setShowInvoices(false)}
+                      style={{
+                        padding: '10px',
+                        background: 'rgba(255,255,255,0.25)',
+                        color: 'white',
+                        border: '2px solid rgba(255,255,255,0.5)',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        fontSize: '24px',
+                        lineHeight: '1',
+                        width: '48px',
+                        height: '48px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      ←
+                    </button>
+                    <div style={{ flex: 1 }}>
+                      <h1 style={{ fontSize: '1.5rem', fontWeight: '800' }}>
+                        💳 Factures
+                      </h1>
+                    </div>
+                  </header>
+
+                  <div style={{
+                    background: 'white',
+                    borderRadius: '20px 20px 0 0',
+                    padding: '20px 15px',
+                    minHeight: 'calc(100vh - 100px)'
+                  }}>
+                    
+                    {/* FORMULAIRE NOUVELLE FACTURE */}
+                    <div style={{
+                      background: 'linear-gradient(135deg, #2E5CFF15 0%, #4ADE8015 100%)',
+                      padding: '20px',
+                      borderRadius: '16px',
+                      marginBottom: '20px',
+                      border: '2px solid #2E5CFF30'
+                    }}>
+                      <h3 style={{ fontSize: '1rem', fontWeight: '700', marginBottom: '15px' }}>
+                        Nouvelle facture
+                      </h3>
+                      
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <input
+                          type="text"
+                          placeholder="Fournisseur (ex: Carrefour)"
+                          value={newInvoice.supplier}
+                          onChange={(e) => setNewInvoice({ ...newInvoice, supplier: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '14px',
+                            border: '2px solid #cbd5e0',
+                            borderRadius: '10px',
+                            fontSize: '16px'
+                          }}
+                        />
+                        
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                          <input
+                            type="text"
+                            placeholder="N° facture"
+                            value={newInvoice.invoice_number}
+                            onChange={(e) => setNewInvoice({ ...newInvoice, invoice_number: e.target.value })}
+                            style={{
+                              width: '100%',
+                              padding: '14px',
+                              border: '2px solid #cbd5e0',
+                              borderRadius: '10px',
+                              fontSize: '16px'
+                            }}
+                          />
+                          
+                          <input
+                            type="date"
+                            value={newInvoice.invoice_date}
+                            onChange={(e) => setNewInvoice({ ...newInvoice, invoice_date: e.target.value })}
+                            style={{
+                              width: '100%',
+                              padding: '14px',
+                              border: '2px solid #cbd5e0',
+                              borderRadius: '10px',
+                              fontSize: '16px'
+                            }}
+                          />
+                        </div>
+
+                        <div style={{ background: 'white', padding: '15px', borderRadius: '10px' }}>
+                          <h4 style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '10px' }}>
+                            📎 Joindre la facture :
+                          </h4>
+                          <input
+                            type="file"
+                            accept="image/*,application/pdf"
+                            onChange={handleInvoiceFileUpload}
+                            style={{
+                              width: '100%',
+                              padding: '12px',
+                              border: '2px solid #cbd5e0',
+                              borderRadius: '8px',
+                              fontSize: '16px'
+                            }}
+                          />
+                          {newInvoice.file && (
+                            <div style={{ marginTop: '10px', fontSize: '0.9rem', color: '#4ADE80' }}>
+                              ✅ {newInvoice.file}
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ background: 'white', padding: '15px', borderRadius: '10px' }}>
+                          <h4 style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '10px' }}>
+                            Ajouter les articles :
+                          </h4>
+                          <input
+                            type="text"
+                            placeholder="Nom de l'article"
+                            value={newInvoiceItem.item_name}
+                            onChange={(e) => setNewInvoiceItem({ ...newInvoiceItem, item_name: e.target.value })}
+                            list="inventory-items"
+                            style={{
+                              width: '100%',
+                              padding: '12px',
+                              border: '2px solid #cbd5e0',
+                              borderRadius: '8px',
+                              fontSize: '16px',
+                              marginBottom: '8px'
+                            }}
+                          />
+                          <datalist id="inventory-items">
+                            {inventory.map((item, idx) => (
+                              <option key={idx} value={item.item_name} />
+                            ))}
+                          </datalist>
+                          
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                            <input
+                              type="number"
+                              placeholder="Qté"
+                              value={newInvoiceItem.quantity || ''}
+                              onChange={(e) => setNewInvoiceItem({ ...newInvoiceItem, quantity: parseFloat(e.target.value) || 0 })}
+                              style={{
+                                padding: '12px',
+                                border: '2px solid #cbd5e0',
+                                borderRadius: '8px',
+                                fontSize: '16px'
+                              }}
+                            />
+                            <input
+                              type="text"
+                              placeholder="Unité"
+                              value={newInvoiceItem.unit}
+                              onChange={(e) => setNewInvoiceItem({ ...newInvoiceItem, unit: e.target.value })}
+                              style={{
+                                padding: '12px',
+                                border: '2px solid #cbd5e0',
+                                borderRadius: '8px',
+                                fontSize: '16px'
+                              }}
+                            />
+                            <input
+                              type="number"
+                              placeholder="Prix €"
+                              step="0.01"
+                              value={newInvoiceItem.price || ''}
+                              onChange={(e) => setNewInvoiceItem({ ...newInvoiceItem, price: parseFloat(e.target.value) || 0 })}
+                              style={{
+                                padding: '12px',
+                                border: '2px solid #cbd5e0',
+                                borderRadius: '8px',
+                                fontSize: '16px'
+                              }}
+                            />
+                          </div>
+                          <button
+                            onClick={addToNewInvoice}
+                            style={{
+                              width: '100%',
+                              padding: '12px',
+                              background: '#2E5CFF',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '8px',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              fontSize: '16px'
+                            }}
+                          >
+                            ➕ Ajouter
+                          </button>
+                        </div>
+
+                        {newInvoice.items.length > 0 && (
+                          <div style={{ background: 'white', padding: '15px', borderRadius: '10px' }}>
+                            <h4 style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '10px' }}>
+                              Articles ({newInvoice.items.length}) :
+                            </h4>
+                            {newInvoice.items.map((item, index) => (
+                              <div
+                                key={index}
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  padding: '10px',
+                                  background: '#f7fafc',
+                                  borderRadius: '8px',
+                                  marginBottom: '8px'
+                                }}
+                              >
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontWeight: '600', fontSize: '0.95rem' }}>
+                                    {item.item_name}
+                                  </div>
+                                  <div style={{ fontSize: '0.85rem', color: '#718096' }}>
+                                    {item.quantity} {item.unit} × {item.price.toFixed(2)}€ = {(item.quantity * item.price).toFixed(2)}€
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => removeFromNewInvoice(index)}
+                                  style={{
+                                    padding: '6px 12px',
+                                    background: '#fed7d7',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontSize: '16px'
+                                  }}
+                                >
+                                  ❌
+                                </button>
+                              </div>
+                            ))}
+                            
+                            <div style={{
+                              marginTop: '15px',
+                              padding: '15px',
+                              background: '#EBF8FF',
+                              borderRadius: '8px',
+                              border: '2px solid #2E5CFF'
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '1.1rem', fontWeight: '700' }}>Total TTC :</span>
+                                <span style={{ fontSize: '1.5rem', fontWeight: '700', color: '#2E5CFF' }}>
+                                  {newInvoice.total.toFixed(2)} €
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        <textarea
+                          placeholder="Notes (optionnel)"
+                          value={newInvoice.notes}
+                          onChange={(e) => setNewInvoice({ ...newInvoice, notes: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '14px',
+                            border: '2px solid #cbd5e0',
+                            borderRadius: '10px',
+                            minHeight: '60px',
+                            resize: 'vertical',
+                            fontSize: '16px'
+                          }}
+                        />
+
+                        <button
+                          onClick={saveInvoice}
+                          disabled={!newInvoice.supplier || !newInvoice.invoice_date || newInvoice.items.length === 0}
+                          style={{
+                            width: '100%',
+                            padding: '16px',
+                            background: newInvoice.supplier && newInvoice.invoice_date && newInvoice.items.length > 0
+                              ? 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)'
+                              : '#cbd5e0',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '10px',
+                            fontWeight: '700',
+                            fontSize: '16px',
+                            cursor: newInvoice.supplier && newInvoice.invoice_date && newInvoice.items.length > 0 ? 'pointer' : 'not-allowed'
+                          }}
+                        >
+                          💾 Enregistrer
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* LISTE DES FACTURES */}
+                    <div>
+                      {invoices.length === 0 ? (
+                        <p style={{ textAlign: 'center', color: '#a0aec0', padding: '40px 20px' }}>
+                          Aucune facture enregistrée.
+                        </p>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                          {invoices.map((invoice) => (
+                            <div
+                              key={invoice.id}
+                              style={{
+                                background: '#f8fafc',
+                                borderRadius: '12px',
+                                border: '2px solid #e2e8f0',
+                                padding: '15px'
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                <div style={{ flex: 1 }}>
+                                  <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '5px' }}>
+                                    🏪 {invoice.supplier}
+                                  </h3>
+                                  <div style={{ fontSize: '0.85rem', color: '#718096' }}>
+                                    📅 {new Date(invoice.invoice_date).toLocaleDateString('fr-FR')}
+                                    {invoice.invoice_number && ` • N° ${invoice.invoice_number}`}
+                                  </div>
+                                  <div style={{ fontSize: '1rem', fontWeight: '700', color: '#2E5CFF', marginTop: '5px' }}>
+                                    💰 {invoice.total.toFixed(2)} €
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => deleteInvoice(invoice.id)}
+                                  style={{
+                                    padding: '8px 12px',
+                                    background: '#fed7d7',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    height: 'fit-content',
+                                    fontSize: '16px'
+                                  }}
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+
+                              {invoice.file && (
+                                <div style={{
+                                  background: 'white',
+                                  padding: '10px',
+                                  borderRadius: '8px',
+                                  marginBottom: '10px',
+                                  fontSize: '0.9rem'
+                                }}>
+                                  📎 {invoice.file}
+                                  {invoice.fileData && (
+                                    <a
+                                      href={invoice.fileData}
+                                      download={invoice.file}
+                                      style={{
+                                        marginLeft: '10px',
+                                        color: '#2E5CFF',
+                                        fontWeight: '600'
+                                      }}
+                                    >
+                                      📥 Télécharger
+                                    </a>
+                                  )}
+                                </div>
+                              )}
+
+                              <div style={{ background: 'white', borderRadius: '8px', padding: '10px', marginBottom: '10px' }}>
+                                {invoice.items.map((item, idx) => (
+                                  <div
+                                    key={idx}
+                                    style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      padding: '6px 0',
+                                      borderBottom: idx < invoice.items.length - 1 ? '1px solid #e2e8f0' : 'none',
+                                      fontSize: '0.9rem'
+                                    }}
+                                  >
+                                    <span>{item.item_name} ({item.quantity} {item.unit})</span>
+                                    <span style={{ fontWeight: '700', color: '#2E5CFF' }}>
+                                      {(item.quantity * item.price).toFixed(2)}€
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <button
+                                onClick={() => addInvoiceToStock(invoice)}
+                                disabled={invoice.addedToStock}
+                                style={{
+                                  width: '100%',
+                                  padding: '14px',
+                                  background: invoice.addedToStock
+                                    ? '#cbd5e0'
+                                    : 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '10px',
+                                  fontWeight: '700',
+                                  fontSize: '15px',
+                                  cursor: invoice.addedToStock ? 'not-allowed' : 'pointer'
+                                }}
+                              >
+                                {invoice.addedToStock ? '✅ Ajouté au stock' : '📦 Ajouter au stock'}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      );
+    }
+
+
+    // ========== CONFIG API ==========
+    const API_URL = 'https://banque-alimentaire-backend.onrender.com/api';
+
+    // ========== COMPOSANT LOGIN ==========
+    function LoginPage({ onSuccess }) {
+      const [pin, setPin] = React.useState('');
+      const [loading, setLoading] = React.useState(false);
+      const [error, setError] = React.useState('');
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+
+        try {
+          const response = await fetch(API_URL + '/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pin }),
+          });
+
+          const data = await response.json();
+
+          if (response.ok && data.success) {
+            localStorage.setItem('ba_token', data.token);
+            localStorage.setItem('ba_logged_in', 'true');
+            onSuccess();
+          } else {
+            setError(data.error || 'PIN incorrect');
+          }
+        } catch (err) {
+          setError('Erreur de connexion au serveur');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return React.createElement('div', {
+        style: {
+          minHeight: '100vh',
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+        }
+      },
+        React.createElement('div', {
+          style: {
+            background: 'white',
+            padding: '40px',
+            borderRadius: '20px',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            maxWidth: '400px',
+            width: '100%'
+          }
+        },
+          // Header
+          React.createElement('div', { style: { textAlign: 'center', marginBottom: '30px' } },
+            React.createElement('h1', {
+              style: { color: '#2E5CFF', fontSize: '28px', marginBottom: '10px', fontWeight: '600' }
+            }, '🍎 Banque Alimentaire'),
+            React.createElement('p', { style: { color: '#666', fontSize: '14px' } }, 'Fontenay-sous-Bois')
+          ),
+
+          // Erreur
+          error && React.createElement('div', {
+            style: {
+              background: '#fee',
+              color: '#c33',
+              padding: '12px',
+              borderRadius: '8px',
+              marginBottom: '20px',
+              fontSize: '14px',
+              textAlign: 'center'
+            }
+          }, error),
+
+          // Formulaire
+          React.createElement('form', { onSubmit: handleSubmit },
+            React.createElement('div', { style: { marginBottom: '20px' } },
+              React.createElement('label', {
+                style: {
+                  display: 'block',
+                  marginBottom: '8px',
+                  color: '#333',
+                  fontWeight: '500'
+                }
+              }, 'Code PIN'),
+              React.createElement('input', {
+                type: 'password',
+                value: pin,
+                onChange: (e) => setPin(e.target.value),
+                placeholder: 'Entrez votre code PIN',
+                maxLength: 10,
+                autoFocus: true,
+                disabled: loading,
+                style: {
+                  width: '100%',
+                  padding: '12px',
+                  border: '2px solid #e0e0e0',
+                  borderRadius: '8px',
+                  fontSize: '16px',
+                  outline: 'none',
+                  transition: 'border-color 0.3s'
+                }
+              })
+            ),
+
+            React.createElement('button', {
+              type: 'submit',
+              disabled: loading || !pin,
+              style: {
+                width: '100%',
+                padding: '14px',
+                background: loading || !pin ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '16px',
+                fontWeight: '600',
+                cursor: loading || !pin ? 'not-allowed' : 'pointer',
+                transition: 'transform 0.2s'
+              }
+            }, loading ? 'Connexion...' : 'Se connecter')
+          ),
+
+          // Info PIN
+          React.createElement('div', {
+            style: {
+              marginTop: '20px',
+              textAlign: 'center',
+              fontSize: '12px',
+              color: '#999'
+            }
+          }, 'PIN par défaut : 1234')
+        )
+      );
+    }
+
+    // ========== APP AVEC AUTH ==========
+    function AppWithAuth() {
+      const [isAuth, setIsAuth] = React.useState(false);
+      const [checking, setChecking] = React.useState(true);
+
+      React.useEffect(() => {
+        const token = localStorage.getItem('ba_token');
+        const logged = localStorage.getItem('ba_logged_in');
+        if (token && logged === 'true') {
+          setIsAuth(true);
+        }
+        setChecking(false);
+      }, []);
+
+      if (checking) {
+        return React.createElement('div', {
+          style: { textAlign: 'center', padding: '50px', fontFamily: 'sans-serif' }
+        }, 'Chargement...');
+      }
+
+      if (!isAuth) {
+        return React.createElement(LoginPage, { onSuccess: () => setIsAuth(true) });
+      }
+
+      return React.createElement(BanqueAlimentaireApp);
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(AppWithAuth));
+  </script>
+</body>
+</html>
