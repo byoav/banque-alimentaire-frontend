@@ -2171,6 +2171,8 @@
           if (response.ok && data.success) {
             localStorage.setItem('ba_token', data.token);
             localStorage.setItem('ba_logged_in', 'true');
+            localStorage.setItem('ba_role', data.role || 'user');
+            localStorage.setItem('ba_user_name', data.name || '');
             onSuccess();
           } else {
             setError(data.error || 'PIN incorrect');
