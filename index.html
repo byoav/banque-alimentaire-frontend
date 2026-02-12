@@ -62,11 +62,35 @@
       return normalizeString(name1) === normalizeString(name2);
     };
 
-    function BanqueAlimentaireApp() {
-      const [inventory, setInventory] = useState(() => {
-        const saved = localStorage.getItem('ba_inventory');
-        return saved ? JSON.parse(saved) : [];
+    // ========== HELPER API ==========
+    const API_URL = 'https://banque-alimentaire-backend.onrender.com/api';
+
+    const apiCall = async (endpoint, options = {}) => {
+      const token = localStorage.getItem('ba_token');
+      const defaultOptions = {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` }),
+        },
+      };
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        ...defaultOptions,
+        ...options,
+        headers: { ...defaultOptions.headers, ...options.headers },
       });
+      if (response.status === 401) {
+        localStorage.removeItem('ba_token');
+        localStorage.removeItem('ba_logged_in');
+        window.location.reload();
+      }
+      return response;
+    };
+
+    function BanqueAlimentaireApp() {
+      // ========== INVENTAIRE (connecté à l'API) ==========
+      const [inventory, setInventory] = useState([]);
+      const [inventoryLoading, setInventoryLoading] = useState(true);
+      const [inventorySaving, setInventorySaving] = useState(false);
       
       const [boxTemplates, setBoxTemplates] = useState(() => {
         const saved = localStorage.getItem('ba_templates');
@@ -122,9 +146,33 @@
         price: 0
       });
 
+      // ========== CHARGER L'INVENTAIRE DEPUIS L'API ==========
+      const loadInventory = async () => {
+        try {
+          setInventoryLoading(true);
+          const response = await apiCall('/inventory');
+          if (response.ok) {
+            const data = await response.json();
+            // Adapter les données de l'API au format frontend
+            const formatted = data.map(item => ({
+              id: item.id,
+              item_name: item.item_name,
+              quantity: parseFloat(item.quantity),
+              unit: item.unit || 'unités',
+              price: parseFloat(item.price_per_unit) || 0
+            }));
+            setInventory(formatted);
+          }
+        } catch (err) {
+          console.error('Erreur chargement inventaire:', err);
+        } finally {
+          setInventoryLoading(false);
+        }
+      };
+
       useEffect(() => {
-        localStorage.setItem('ba_inventory', JSON.stringify(inventory));
-      }, [inventory]);
+        loadInventory();
+      }, []);
 
       useEffect(() => {
         localStorage.setItem('ba_templates', JSON.stringify(boxTemplates));
@@ -138,38 +186,120 @@
         localStorage.setItem('ba_invoices', JSON.stringify(invoices));
       }, [invoices]);
 
-      const addToInventory = () => {
-        if (newItem.item_name && newItem.quantity > 0) {
-          const existingIndex = inventory.findIndex(item => 
+      const addToInventory = async () => {
+        if (!newItem.item_name || newItem.quantity <= 0) {
+          alert('Veuillez remplir le nom et la quantité');
+          return;
+        }
+
+        setInventorySaving(true);
+        try {
+          // Vérifier si l'article existe déjà
+          const existingItem = inventory.find(item => 
             areNamesEquivalent(item.item_name, newItem.item_name)
           );
 
-          if (existingIndex !== -1) {
-            const updated = [...inventory];
-            updated[existingIndex].quantity += parseFloat(newItem.quantity);
-            if (newItem.price > 0) {
-              updated[existingIndex].price = newItem.price;
+          if (existingItem) {
+            // Mettre à jour l'article existant
+            const newQuantity = existingItem.quantity + parseFloat(newItem.quantity);
+            const response = await apiCall(`/inventory/${existingItem.id}`, {
+              method: 'PUT',
+              body: JSON.stringify({
+                item_name: existingItem.item_name,
+                quantity: newQuantity,
+                unit: existingItem.unit,
+                price_per_unit: newItem.price > 0 ? newItem.price : existingItem.price
+              }),
+            });
+
+            if (response.ok) {
+              await loadInventory();
+              setNewItem({ item_name: '', quantity: 0, unit: 'unités', price: 0 });
+              alert(`✅ Quantité mise à jour : ${existingItem.item_name} = ${newQuantity} ${existingItem.unit}`);
+            } else {
+              const error = await response.json();
+              alert('❌ ' + (error.error || 'Erreur de mise à jour'));
             }
-            setInventory(updated);
-            alert(`✅ Quantité mise à jour : ${updated[existingIndex].item_name} = ${updated[existingIndex].quantity} ${updated[existingIndex].unit}`);
           } else {
-            setInventory([...inventory, { ...newItem, id: Date.now() }]);
+            // Créer un nouvel article
+            const response = await apiCall('/inventory', {
+              method: 'POST',
+              body: JSON.stringify({
+                item_name: newItem.item_name,
+                quantity: parseFloat(newItem.quantity),
+                unit: newItem.unit,
+                price_per_unit: newItem.price || 0
+              }),
+            });
+
+            if (response.ok) {
+              await loadInventory();
+              setNewItem({ item_name: '', quantity: 0, unit: 'unités', price: 0 });
+              alert('✅ Article ajouté !');
+            } else {
+              const error = await response.json();
+              alert('❌ ' + (error.error || 'Erreur d\'ajout'));
+            }
           }
-          
-          setNewItem({ item_name: '', quantity: 0, unit: 'unités', price: 0 });
+        } catch (err) {
+          console.error('Erreur:', err);
+          alert('❌ Erreur de connexion au serveur');
+        } finally {
+          setInventorySaving(false);
         }
       };
 
-      const updateInventoryItem = (id, quantity) => {
-        setInventory(inventory.map(item => 
-          item.id === id ? { ...item, quantity: parseFloat(quantity) } : item
-        ));
-        setEditingItem(null);
+      const updateInventoryItem = async (id, quantity) => {
+        const item = inventory.find(i => i.id === id);
+        if (!item) return;
+
+        setInventorySaving(true);
+        try {
+          const response = await apiCall(`/inventory/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              item_name: item.item_name,
+              quantity: parseFloat(quantity),
+              unit: item.unit,
+              price_per_unit: item.price
+            }),
+          });
+
+          if (response.ok) {
+            await loadInventory();
+            setEditingItem(null);
+          } else {
+            const error = await response.json();
+            alert('❌ ' + (error.error || 'Erreur de mise à jour'));
+          }
+        } catch (err) {
+          console.error('Erreur:', err);
+          alert('❌ Erreur de connexion');
+        } finally {
+          setInventorySaving(false);
+        }
       };
 
-      const deleteInventoryItem = (id) => {
-        if (confirm('Supprimer cet article ?')) {
-          setInventory(inventory.filter(item => item.id !== id));
+      const deleteInventoryItem = async (id) => {
+        if (!confirm('Supprimer cet article ?')) return;
+
+        setInventorySaving(true);
+        try {
+          const response = await apiCall(`/inventory/${id}`, {
+            method: 'DELETE',
+          });
+
+          if (response.ok) {
+            await loadInventory();
+          } else {
+            const error = await response.json();
+            alert('❌ ' + (error.error || 'Erreur de suppression'));
+          }
+        } catch (err) {
+          console.error('Erreur:', err);
+          alert('❌ Erreur de connexion');
+        } finally {
+          setInventorySaving(false);
         }
       };
 
@@ -423,36 +553,53 @@
         }
       };
 
-      const addInvoiceToStock = (invoice) => {
-        if (confirm(`Ajouter les ${invoice.items.length} articles au stock ?`)) {
-          let updatedInventory = [...inventory];
-          
-          invoice.items.forEach(invoiceItem => {
-            const existingIndex = updatedInventory.findIndex(item =>
+      const addInvoiceToStock = async (invoice) => {
+        if (!confirm(`Ajouter les ${invoice.items.length} articles au stock ?`)) return;
+
+        setInventorySaving(true);
+        try {
+          for (const invoiceItem of invoice.items) {
+            const existingItem = inventory.find(item =>
               areNamesEquivalent(item.item_name, invoiceItem.item_name)
             );
-            
-            if (existingIndex !== -1) {
-              updatedInventory[existingIndex].quantity += parseFloat(invoiceItem.quantity);
-              updatedInventory[existingIndex].price = invoiceItem.price;
+
+            if (existingItem) {
+              // Mettre à jour l'article existant
+              await apiCall(`/inventory/${existingItem.id}`, {
+                method: 'PUT',
+                body: JSON.stringify({
+                  item_name: existingItem.item_name,
+                  quantity: existingItem.quantity + parseFloat(invoiceItem.quantity),
+                  unit: existingItem.unit,
+                  price_per_unit: invoiceItem.price
+                }),
+              });
             } else {
-              updatedInventory.push({
-                id: Date.now() + Math.random(),
-                item_name: invoiceItem.item_name,
-                quantity: parseFloat(invoiceItem.quantity),
-                unit: invoiceItem.unit,
-                price: invoiceItem.price
+              // Créer un nouvel article
+              await apiCall('/inventory', {
+                method: 'POST',
+                body: JSON.stringify({
+                  item_name: invoiceItem.item_name,
+                  quantity: parseFloat(invoiceItem.quantity),
+                  unit: invoiceItem.unit,
+                  price_per_unit: invoiceItem.price
+                }),
               });
             }
-          });
-          
-          setInventory(updatedInventory);
+          }
+
+          await loadInventory();
           
           setInvoices(invoices.map(inv => 
             inv.id === invoice.id ? { ...inv, addedToStock: true } : inv
           ));
           
           alert('✅ Stock mis à jour !');
+        } catch (err) {
+          console.error('Erreur:', err);
+          alert('❌ Erreur lors de l\'ajout au stock');
+        } finally {
+          setInventorySaving(false);
         }
       };
 
@@ -730,25 +877,40 @@
                       
                       <button
                         onClick={addToInventory}
+                        disabled={inventorySaving}
                         style={{
                           width: '100%',
                           padding: '16px',
-                          background: 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)',
+                          background: inventorySaving ? '#cbd5e0' : 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)',
                           color: 'white',
                           border: 'none',
                           borderRadius: '10px',
                           fontWeight: '700',
                           fontSize: '16px',
-                          cursor: 'pointer'
+                          cursor: inventorySaving ? 'not-allowed' : 'pointer'
                         }}
                       >
-                        ➕ Ajouter
+                        {inventorySaving ? '⏳ Enregistrement...' : '➕ Ajouter'}
                       </button>
                     </div>
                   </div>
 
                   <div>
-                    {inventory.length === 0 ? (
+                    {inventoryLoading ? (
+                      <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                        <div style={{
+                          display: 'inline-block',
+                          width: '40px',
+                          height: '40px',
+                          border: '4px solid #e2e8f0',
+                          borderTop: '4px solid #2E5CFF',
+                          borderRadius: '50%',
+                          animation: 'spin 1s linear infinite'
+                        }}></div>
+                        <p style={{ marginTop: '15px', color: '#718096' }}>Chargement du stock...</p>
+                        <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+                      </div>
+                    ) : inventory.length === 0 ? (
                       <p style={{ textAlign: 'center', color: '#a0aec0', padding: '40px 20px', fontSize: '0.95rem' }}>
                         Aucune denrée en stock.
                       </p>
