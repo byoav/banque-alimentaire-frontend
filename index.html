@@ -87,6 +87,11 @@
     };
 
     function BanqueAlimentaireApp({ onLogout }) {
+      // ========== RÔLE ET UTILISATEUR ==========
+      const userRole = localStorage.getItem('ba_role') || 'user';
+      const isAdmin = userRole === 'admin';
+      const userName = localStorage.getItem('ba_user_name') || 'Utilisateur';
+
       // ========== INVENTAIRE (connecté à l'API) ==========
       const [inventory, setInventory] = useState([]);
       const [inventoryLoading, setInventoryLoading] = useState(true);
@@ -591,6 +596,126 @@
         }
       };
 
+      // ========== EXPORT PDF INVENTAIRE ==========
+      const exportInventoryToPDF = () => {
+        try {
+          const { jsPDF } = window.jspdf;
+          const doc = new jsPDF();
+          
+          // Titre
+          doc.setFontSize(20);
+          doc.setFont(undefined, 'bold');
+          doc.text('Banque Alimentaire - Inventaire', 105, 20, { align: 'center' });
+          
+          // Date
+          doc.setFontSize(10);
+          doc.setFont(undefined, 'normal');
+          doc.text('Genere le ' + new Date().toLocaleDateString('fr-FR'), 105, 30, { align: 'center' });
+          
+          // Stats
+          doc.setFontSize(12);
+          doc.setFont(undefined, 'bold');
+          doc.text('Statistiques :', 20, 45);
+          
+          doc.setFont(undefined, 'normal');
+          doc.text('Nombre d\'articles : ' + inventory.length, 20, 55);
+          const totalValue = inventory.reduce((sum, item) => sum + (item.quantity * (item.price || 0)), 0);
+          doc.text('Valeur totale : ' + totalValue.toFixed(2) + ' EUR', 20, 62);
+          
+          // Tableau des articles
+          doc.setFont(undefined, 'bold');
+          doc.text('Articles :', 20, 75);
+          
+          let y = 85;
+          doc.setFontSize(10);
+          
+          // Headers
+          doc.setFont(undefined, 'bold');
+          doc.text('Article', 20, y);
+          doc.text('Quantite', 100, y);
+          doc.text('Prix', 140, y);
+          doc.text('Total', 170, y);
+          
+          y += 7;
+          doc.setFont(undefined, 'normal');
+          
+          // Lignes
+          inventory.forEach(item => {
+            if (y > 270) {
+              doc.addPage();
+              y = 20;
+            }
+            
+            doc.text((item.item_name || '').substring(0, 30), 20, y);
+            doc.text(item.quantity + ' ' + (item.unit || ''), 100, y);
+            doc.text((item.price || 0).toFixed(2) + ' EUR', 140, y);
+            doc.text((item.quantity * (item.price || 0)).toFixed(2) + ' EUR', 170, y);
+            
+            y += 7;
+          });
+          
+          // Sauvegarder
+          doc.save('inventaire_' + new Date().toISOString().split('T')[0] + '.pdf');
+          alert('✅ PDF genere !');
+        } catch (error) {
+          console.error('Erreur PDF:', error);
+          alert('Erreur lors de la generation du PDF');
+        }
+      };
+
+      // ========== EXPORT PDF DISTRIBUTION ==========
+      const exportDistributionToPDF = (distribution) => {
+        try {
+          const { jsPDF } = window.jspdf;
+          const doc = new jsPDF();
+          
+          const template = boxTemplates.find(t => t.id === parseInt(distribution.template_id));
+          
+          doc.setFontSize(18);
+          doc.setFont(undefined, 'bold');
+          doc.text('Distribution - ' + (template?.template_name || distribution.template_name || 'Sans nom'), 105, 20, { align: 'center' });
+          
+          doc.setFontSize(12);
+          doc.setFont(undefined, 'normal');
+          doc.text('Date : ' + new Date(distribution.distribution_date).toLocaleDateString('fr-FR'), 20, 40);
+          doc.text('Nombre de cartons : ' + distribution.box_count, 20, 50);
+          
+          if (template && template.items) {
+            doc.setFont(undefined, 'bold');
+            doc.text('Contenu par carton :', 20, 65);
+            
+            let y = 75;
+            doc.setFontSize(10);
+            doc.setFont(undefined, 'normal');
+            
+            template.items.forEach(item => {
+              doc.text('- ' + item.item_name + ' : ' + item.quantity, 25, y);
+              y += 7;
+            });
+            
+            // Total nécessaire
+            y += 10;
+            doc.setFont(undefined, 'bold');
+            doc.text('Total necessaire :', 20, y);
+            
+            y += 10;
+            doc.setFont(undefined, 'normal');
+            
+            template.items.forEach(item => {
+              const totalNeeded = item.quantity * distribution.box_count;
+              doc.text(item.item_name + ' : ' + totalNeeded, 25, y);
+              y += 7;
+            });
+          }
+          
+          doc.save('distribution_' + distribution.distribution_date + '.pdf');
+          alert('✅ PDF genere !');
+        } catch (error) {
+          console.error('Erreur PDF:', error);
+          alert('Erreur lors de la generation du PDF');
+        }
+      };
+
 
       // FONCTIONS FACTURES
       const handleInvoiceFileUpload = (e) => {
@@ -844,9 +969,37 @@
                   borderRadius: '12px',
                   boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
                   zIndex: 999,
-                  minWidth: '200px',
+                  minWidth: '220px',
                   overflow: 'hidden'
                 }}>
+                  {/* Affichage utilisateur et rôle */}
+                  <div style={{
+                    padding: '15px',
+                    background: isAdmin ? '#F0FDF4' : '#F3F4F6',
+                    borderBottom: '1px solid #e2e8f0'
+                  }}>
+                    <div style={{ fontSize: '0.85rem', color: '#6B7280', marginBottom: '5px' }}>
+                      Connecté en tant que
+                    </div>
+                    <div style={{ fontWeight: '600', fontSize: '1rem', color: '#1F2937' }}>
+                      {userName}
+                    </div>
+                    {isAdmin && (
+                      <div style={{
+                        marginTop: '8px',
+                        padding: '4px 10px',
+                        background: '#4ADE80',
+                        color: 'white',
+                        borderRadius: '4px',
+                        fontSize: '0.75rem',
+                        display: 'inline-block',
+                        fontWeight: '600'
+                      }}>
+                        ⭐ Administrateur
+                      </div>
+                    )}
+                  </div>
+                  
                   <button
                     onClick={() => {
                       setShowInvoices(true);
@@ -931,14 +1084,15 @@
               {[
                 { id: 'inventory', label: 'Inventaire', icon: '📦' },
                 { id: 'templates', label: 'Cartons', icon: '🛒' },
-                { id: 'distributions', label: 'Distributions', icon: '📅' }
+                { id: 'distributions', label: 'Distributions', icon: '📅' },
+                { id: 'stats', label: 'Stats', icon: '📊' }
               ].map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   style={{
                     flex: '1 1 auto',
-                    minWidth: '100px',
+                    minWidth: '80px',
                     padding: '12px 16px',
                     border: 'none',
                     borderRadius: '12px',
@@ -967,9 +1121,29 @@
               {/* ONGLET INVENTAIRE */}
               {activeTab === 'inventory' && (
                 <div>
-                  <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1a202c', marginBottom: '20px' }}>
-                    📦 Stock actuel
-                  </h2>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1a202c' }}>
+                      📦 Stock actuel
+                    </h2>
+                    <button
+                      onClick={exportInventoryToPDF}
+                      style={{
+                        padding: '10px 16px',
+                        background: '#EF4444',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                        fontSize: '14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      📄 PDF
+                    </button>
+                  </div>
 
                   <div style={{
                     background: 'linear-gradient(135deg, #2E5CFF15 0%, #4ADE8015 100%)',
@@ -1702,6 +1876,197 @@
                 </div>
               )}
 
+              {/* ONGLET STATISTIQUES */}
+              {activeTab === 'stats' && (
+                <div>
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1a202c', marginBottom: '20px' }}>
+                    📊 Statistiques
+                  </h2>
+
+                  {/* Compteurs */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: '15px',
+                    marginBottom: '20px'
+                  }}>
+                    <div style={{
+                      padding: '20px',
+                      background: 'linear-gradient(135deg, #2E5CFF 0%, #1E40AF 100%)',
+                      borderRadius: '12px',
+                      color: 'white'
+                    }}>
+                      <div style={{ fontSize: '0.85rem', marginBottom: '5px', opacity: 0.9 }}>
+                        📦 Articles en stock
+                      </div>
+                      <div style={{ fontSize: '2rem', fontWeight: '700' }}>
+                        {inventory.length}
+                      </div>
+                    </div>
+
+                    <div style={{
+                      padding: '20px',
+                      background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
+                      borderRadius: '12px',
+                      color: 'white'
+                    }}>
+                      <div style={{ fontSize: '0.85rem', marginBottom: '5px', opacity: 0.9 }}>
+                        🛒 Modèles de cartons
+                      </div>
+                      <div style={{ fontSize: '2rem', fontWeight: '700' }}>
+                        {boxTemplates.length}
+                      </div>
+                    </div>
+
+                    <div style={{
+                      padding: '20px',
+                      background: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
+                      borderRadius: '12px',
+                      color: 'white'
+                    }}>
+                      <div style={{ fontSize: '0.85rem', marginBottom: '5px', opacity: 0.9 }}>
+                        📅 Distributions
+                      </div>
+                      <div style={{ fontSize: '2rem', fontWeight: '700' }}>
+                        {distributions.length}
+                      </div>
+                    </div>
+
+                    <div style={{
+                      padding: '20px',
+                      background: 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)',
+                      borderRadius: '12px',
+                      color: 'white'
+                    }}>
+                      <div style={{ fontSize: '0.85rem', marginBottom: '5px', opacity: 0.9 }}>
+                        💳 Factures
+                      </div>
+                      <div style={{ fontSize: '2rem', fontWeight: '700' }}>
+                        {invoices.length}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Valeur totale du stock */}
+                  <div style={{
+                    padding: '20px',
+                    background: '#F0FDF4',
+                    border: '2px solid #4ADE80',
+                    borderRadius: '12px',
+                    marginBottom: '20px'
+                  }}>
+                    <div style={{ fontSize: '0.9rem', color: '#166534', marginBottom: '10px' }}>
+                      💰 Valeur totale du stock
+                    </div>
+                    <div style={{ fontSize: '2.5rem', fontWeight: '700', color: '#15803D' }}>
+                      {inventory.reduce((sum, item) => sum + (item.quantity * (item.price || 0)), 0).toFixed(2)} €
+                    </div>
+                  </div>
+
+                  {/* Top 5 articles */}
+                  <div style={{
+                    padding: '20px',
+                    background: 'white',
+                    borderRadius: '12px',
+                    boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    <h3 style={{ marginBottom: '15px', color: '#374151', fontSize: '1.1rem' }}>
+                      🏆 Top 5 articles (par quantité)
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {inventory.length === 0 ? (
+                        <p style={{ color: '#9CA3AF', textAlign: 'center', padding: '20px' }}>
+                          Aucun article en stock
+                        </p>
+                      ) : (
+                        [...inventory]
+                          .sort((a, b) => b.quantity - a.quantity)
+                          .slice(0, 5)
+                          .map((item, index) => (
+                            <div
+                              key={item.id}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '12px',
+                                background: '#F9FAFB',
+                                borderRadius: '8px'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <div style={{
+                                  width: '30px',
+                                  height: '30px',
+                                  background: index === 0 ? '#FFD700' : index === 1 ? '#C0C0C0' : index === 2 ? '#CD7F32' : '#E5E7EB',
+                                  borderRadius: '50%',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontWeight: '700',
+                                  color: index < 3 ? 'white' : '#6B7280',
+                                  fontSize: '0.85rem'
+                                }}>
+                                  {index + 1}
+                                </div>
+                                <span style={{ fontWeight: '600' }}>{item.item_name}</span>
+                              </div>
+                              <span style={{ fontWeight: '700', color: '#2E5CFF' }}>
+                                {item.quantity} {item.unit}
+                              </span>
+                            </div>
+                          ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Articles à faible stock */}
+                  <div style={{
+                    padding: '20px',
+                    background: 'white',
+                    borderRadius: '12px',
+                    boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+                    border: '1px solid #e2e8f0',
+                    marginTop: '20px'
+                  }}>
+                    <h3 style={{ marginBottom: '15px', color: '#DC2626', fontSize: '1.1rem' }}>
+                      ⚠️ Stock faible (moins de 10)
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {inventory.filter(item => item.quantity < 10).length === 0 ? (
+                        <p style={{ color: '#10B981', textAlign: 'center', padding: '20px' }}>
+                          ✅ Tous les stocks sont suffisants
+                        </p>
+                      ) : (
+                        inventory
+                          .filter(item => item.quantity < 10)
+                          .sort((a, b) => a.quantity - b.quantity)
+                          .map((item) => (
+                            <div
+                              key={item.id}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '12px',
+                                background: '#FEF2F2',
+                                borderRadius: '8px',
+                                border: '1px solid #FECACA'
+                              }}
+                            >
+                              <span style={{ fontWeight: '600', color: '#991B1B' }}>{item.item_name}</span>
+                              <span style={{ fontWeight: '700', color: '#DC2626' }}>
+                                {item.quantity} {item.unit}
+                              </span>
+                            </div>
+                          ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
             </div>
 
             {/* INTERFACE FACTURES - MODALE PLEIN ÉCRAN */}
@@ -2172,7 +2537,7 @@
             localStorage.setItem('ba_token', data.token);
             localStorage.setItem('ba_logged_in', 'true');
             localStorage.setItem('ba_role', data.role || 'user');
-            localStorage.setItem('ba_user_name', data.name || '');
+            localStorage.setItem('ba_user_name', data.name || 'Utilisateur');
             onSuccess();
           } else {
             setError(data.error || 'PIN incorrect');
@@ -2316,6 +2681,8 @@
         onLogout: () => {
           localStorage.removeItem('ba_token');
           localStorage.removeItem('ba_logged_in');
+          localStorage.removeItem('ba_role');
+          localStorage.removeItem('ba_user_name');
           setIsAuth(false);
         }
       });
