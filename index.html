@@ -86,21 +86,19 @@
       return response;
     };
 
-    function BanqueAlimentaireApp() {
+    function BanqueAlimentaireApp({ onLogout }) {
       // ========== INVENTAIRE (connecté à l'API) ==========
       const [inventory, setInventory] = useState([]);
       const [inventoryLoading, setInventoryLoading] = useState(true);
       const [inventorySaving, setInventorySaving] = useState(false);
       
-      const [boxTemplates, setBoxTemplates] = useState(() => {
-        const saved = localStorage.getItem('ba_templates');
-        return saved ? JSON.parse(saved) : [];
-      });
+      // ========== CARTONS (connecté à l'API) ==========
+      const [boxTemplates, setBoxTemplates] = useState([]);
+      const [templatesLoading, setTemplatesLoading] = useState(true);
       
-      const [distributions, setDistributions] = useState(() => {
-        const saved = localStorage.getItem('ba_distributions');
-        return saved ? JSON.parse(saved) : [];
-      });
+      // ========== DISTRIBUTIONS (connecté à l'API) ==========
+      const [distributions, setDistributions] = useState([]);
+      const [distributionsLoading, setDistributionsLoading] = useState(true);
       
       const [activeTab, setActiveTab] = useState('inventory');
       const [newItem, setNewItem] = useState({ item_name: '', quantity: 0, unit: 'unités', price: 0 });
@@ -121,10 +119,9 @@
       
       const [menuOpen, setMenuOpen] = useState(false);
       
-      const [invoices, setInvoices] = useState(() => {
-        const saved = localStorage.getItem('ba_invoices');
-        return saved ? JSON.parse(saved) : [];
-      });
+      // ========== FACTURES (connecté à l'API) ==========
+      const [invoices, setInvoices] = useState([]);
+      const [invoicesLoading, setInvoicesLoading] = useState(true);
       
       const [showInvoices, setShowInvoices] = useState(false);
       
@@ -170,21 +167,68 @@
         }
       };
 
+      // ========== CHARGER LES CARTONS DEPUIS L'API ==========
+      const loadTemplates = async () => {
+        try {
+          setTemplatesLoading(true);
+          const response = await apiCall('/templates');
+          if (response.ok) {
+            const data = await response.json();
+            // Adapter les données pour le frontend
+            const formatted = data.map(t => ({
+              id: t.id,
+              template_name: t.template_name,
+              description: t.description || '',
+              items: t.items || []
+            }));
+            setBoxTemplates(formatted);
+          }
+        } catch (err) {
+          console.error('Erreur chargement templates:', err);
+        } finally {
+          setTemplatesLoading(false);
+        }
+      };
+
+      // ========== CHARGER LES DISTRIBUTIONS DEPUIS L'API ==========
+      const loadDistributions = async () => {
+        try {
+          setDistributionsLoading(true);
+          const response = await apiCall('/distributions');
+          if (response.ok) {
+            const data = await response.json();
+            setDistributions(data);
+          }
+        } catch (err) {
+          console.error('Erreur chargement distributions:', err);
+        } finally {
+          setDistributionsLoading(false);
+        }
+      };
+
+      // ========== CHARGER LES FACTURES DEPUIS L'API ==========
+      const loadInvoices = async () => {
+        try {
+          setInvoicesLoading(true);
+          const response = await apiCall('/invoices');
+          if (response.ok) {
+            const data = await response.json();
+            setInvoices(data);
+          }
+        } catch (err) {
+          console.error('Erreur chargement factures:', err);
+        } finally {
+          setInvoicesLoading(false);
+        }
+      };
+
+      // ========== CHARGER TOUTES LES DONNÉES AU DÉMARRAGE ==========
       useEffect(() => {
         loadInventory();
+        loadTemplates();
+        loadDistributions();
+        loadInvoices();
       }, []);
-
-      useEffect(() => {
-        localStorage.setItem('ba_templates', JSON.stringify(boxTemplates));
-      }, [boxTemplates]);
-
-      useEffect(() => {
-        localStorage.setItem('ba_distributions', JSON.stringify(distributions));
-      }, [distributions]);
-
-      useEffect(() => {
-        localStorage.setItem('ba_invoices', JSON.stringify(invoices));
-      }, [invoices]);
 
       const addToInventory = async () => {
         if (!newItem.item_name || newItem.quantity <= 0) {
@@ -332,37 +376,98 @@
         });
       };
 
-      const saveBoxTemplate = () => {
-        if (newTemplate.template_name && newTemplate.items.length > 0) {
-          setBoxTemplates([...boxTemplates, { ...newTemplate, id: Date.now() }]);
-          setNewTemplate({ template_name: '', description: '', items: [] });
-          alert('✅ Modèle créé !');
+      const saveBoxTemplate = async () => {
+        if (!newTemplate.template_name || newTemplate.items.length === 0) {
+          alert('Nom et articles requis');
+          return;
+        }
+
+        try {
+          const response = await apiCall('/templates', {
+            method: 'POST',
+            body: JSON.stringify({
+              template_name: newTemplate.template_name,
+              description: newTemplate.description || '',
+              items: newTemplate.items
+            }),
+          });
+
+          if (response.ok) {
+            await loadTemplates();
+            setNewTemplate({ template_name: '', description: '', items: [] });
+            alert('✅ Modèle créé !');
+          } else {
+            const error = await response.json();
+            alert('❌ ' + (error.error || 'Erreur création'));
+          }
+        } catch (err) {
+          console.error('Erreur:', err);
+          alert('❌ Erreur connexion');
         }
       };
 
-      const deleteBoxTemplate = (id) => {
-        if (confirm('Supprimer ce modèle ?')) {
-          setBoxTemplates(boxTemplates.filter(t => t.id !== id));
+      const deleteBoxTemplate = async (id) => {
+        if (!confirm('Supprimer ce modèle ?')) return;
+
+        try {
+          const response = await apiCall(`/templates/${id}`, {
+            method: 'DELETE',
+          });
+
+          if (response.ok) {
+            await loadTemplates();
+          } else {
+            const error = await response.json();
+            alert('❌ ' + (error.error || 'Erreur suppression'));
+          }
+        } catch (err) {
+          console.error('Erreur:', err);
+          alert('❌ Erreur connexion');
         }
       };
 
-      const createDistribution = () => {
-        if (newDistribution.template_id && newDistribution.distribution_date && newDistribution.box_count > 0) {
+      const createDistribution = async () => {
+        if (!newDistribution.template_id || !newDistribution.distribution_date || newDistribution.box_count <= 0) {
+          alert('Remplir tous les champs');
+          return;
+        }
+
+        try {
           const template = boxTemplates.find(t => t.id === parseInt(newDistribution.template_id));
-          setDistributions([...distributions, {
-            ...newDistribution,
-            id: Date.now(),
-            template_name: template.template_name,
-            status: 'planned'
-          }]);
-          setNewDistribution({ template_id: '', distribution_date: '', box_count: 0, notes: '' });
-          alert('✅ Distribution planifiée !');
+          const response = await apiCall('/distributions', {
+            method: 'POST',
+            body: JSON.stringify({
+              template_id: parseInt(newDistribution.template_id),
+              template_name: template ? template.template_name : '',
+              distribution_date: newDistribution.distribution_date,
+              box_count: parseInt(newDistribution.box_count),
+              notes: newDistribution.notes || '',
+              status: 'planned'
+            }),
+          });
+
+          if (response.ok) {
+            await loadDistributions();
+            setNewDistribution({ template_id: '', distribution_date: '', box_count: 0, notes: '' });
+            alert('✅ Distribution planifiée !');
+          } else {
+            const error = await response.json();
+            alert('❌ ' + (error.error || 'Erreur création'));
+          }
+        } catch (err) {
+          console.error('Erreur:', err);
+          alert('❌ Erreur connexion');
         }
       };
 
       const viewDistributionNeeds = (distributionId) => {
         const dist = distributions.find(d => d.id === distributionId);
         const template = boxTemplates.find(t => t.id === parseInt(dist.template_id));
+        
+        if (!template) {
+          alert('Modèle de carton introuvable');
+          return;
+        }
         
         const needs = template.items.map(templateItem => {
           const inventoryItem = inventory.find(invItem =>
@@ -391,9 +496,25 @@
         setSelectedDistribution(distributionId);
       };
 
-      const deleteDistribution = (id) => {
-        if (confirm('Supprimer cette distribution ?')) {
-          setDistributions(distributions.filter(d => d.id !== id));
+      const deleteDistribution = async (id) => {
+        if (!confirm('Supprimer cette distribution ?')) return;
+
+        try {
+          const response = await apiCall(`/distributions/${id}`, {
+            method: 'DELETE',
+          });
+
+          if (response.ok) {
+            await loadDistributions();
+            setSelectedDistribution(null);
+            setDistributionNeeds([]);
+          } else {
+            const error = await response.json();
+            alert('❌ ' + (error.error || 'Erreur suppression'));
+          }
+        } catch (err) {
+          console.error('Erreur:', err);
+          alert('❌ Erreur connexion');
         }
       };
 
@@ -529,27 +650,68 @@
         });
       };
 
-      const saveInvoice = () => {
-        if (newInvoice.supplier && newInvoice.invoice_date && newInvoice.items.length > 0) {
-          setInvoices([...invoices, { ...newInvoice, id: Date.now() }]);
-          setNewInvoice({
-            supplier: '',
-            invoice_number: '',
-            invoice_date: '',
-            file: null,
-            fileData: null,
-            items: [],
-            total: 0,
-            notes: ''
+      const saveInvoice = async () => {
+        if (!newInvoice.supplier || !newInvoice.invoice_date || newInvoice.items.length === 0) {
+          alert('Remplir tous les champs');
+          return;
+        }
+
+        try {
+          const response = await apiCall('/invoices', {
+            method: 'POST',
+            body: JSON.stringify({
+              supplier: newInvoice.supplier,
+              invoice_number: newInvoice.invoice_number || '',
+              invoice_date: newInvoice.invoice_date,
+              items: newInvoice.items,
+              total: newInvoice.total,
+              notes: newInvoice.notes || '',
+              file_name: newInvoice.file || null,
+              file_data: newInvoice.fileData || null
+            }),
           });
-          setShowInvoices(false);
-          alert('✅ Facture enregistrée !');
+
+          if (response.ok) {
+            await loadInvoices();
+            setNewInvoice({
+              supplier: '',
+              invoice_number: '',
+              invoice_date: '',
+              file: null,
+              fileData: null,
+              items: [],
+              total: 0,
+              notes: ''
+            });
+            setShowInvoices(false);
+            alert('✅ Facture enregistrée !');
+          } else {
+            const error = await response.json();
+            alert('❌ ' + (error.error || 'Erreur enregistrement'));
+          }
+        } catch (err) {
+          console.error('Erreur:', err);
+          alert('❌ Erreur connexion');
         }
       };
 
-      const deleteInvoice = (id) => {
-        if (confirm('Supprimer cette facture ?')) {
-          setInvoices(invoices.filter(inv => inv.id !== id));
+      const deleteInvoice = async (id) => {
+        if (!confirm('Supprimer cette facture ?')) return;
+
+        try {
+          const response = await apiCall(`/invoices/${id}`, {
+            method: 'DELETE',
+          });
+
+          if (response.ok) {
+            await loadInvoices();
+          } else {
+            const error = await response.json();
+            alert('❌ ' + (error.error || 'Erreur suppression'));
+          }
+        } catch (err) {
+          console.error('Erreur:', err);
+          alert('❌ Erreur connexion');
         }
       };
 
@@ -588,11 +750,17 @@
             }
           }
 
+          // Mettre à jour la facture pour marquer qu'elle a été ajoutée au stock
+          await apiCall(`/invoices/${invoice.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              ...invoice,
+              added_to_stock: true
+            }),
+          });
+
           await loadInventory();
-          
-          setInvoices(invoices.map(inv => 
-            inv.id === invoice.id ? { ...inv, addedToStock: true } : inv
-          ));
+          await loadInvoices();
           
           alert('✅ Stock mis à jour !');
         } catch (err) {
@@ -728,7 +896,7 @@
                     onClick={() => {
                       setMenuOpen(false);
                       if (confirm('Se déconnecter ?')) {
-                        alert('Déconnexion (fonctionnalité à venir)');
+                        onLogout();
                       }
                     }}
                     style={{
@@ -2142,7 +2310,13 @@
         return React.createElement(LoginPage, { onSuccess: () => setIsAuth(true) });
       }
 
-      return React.createElement(BanqueAlimentaireApp);
+      return React.createElement(BanqueAlimentaireApp, { 
+        onLogout: () => {
+          localStorage.removeItem('ba_token');
+          localStorage.removeItem('ba_logged_in');
+          setIsAuth(false);
+        }
+      });
     }
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
