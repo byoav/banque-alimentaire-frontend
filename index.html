@@ -156,13 +156,13 @@
           if (response.ok) {
             const data = await response.json();
             // Adapter les données de l'API au format frontend
-            // Compatible avec price_per_unit OU price
+            // Adapter les données de l'API au format frontend
             const formatted = data.map(item => ({
               id: item.id,
               item_name: item.item_name,
               quantity: parseFloat(item.quantity),
               unit: item.unit || 'unités',
-              price: parseFloat(item.price_per_unit || item.price) || 0
+              price: parseFloat(item.price) || 0
             }));
             setInventory(formatted);
           }
@@ -258,7 +258,7 @@
                 item_name: existingItem.item_name,
                 quantity: newQuantity,
                 unit: existingItem.unit,
-                price_per_unit: newItem.price > 0 ? newItem.price : existingItem.price
+                price: newItem.price > 0 ? newItem.price : existingItem.price
               }),
             });
 
@@ -278,7 +278,7 @@
                 item_name: newItem.item_name,
                 quantity: parseFloat(newItem.quantity),
                 unit: newItem.unit,
-                price_per_unit: newItem.price || 0
+                price: newItem.price || 0
               }),
             });
 
@@ -311,7 +311,7 @@
               item_name: item.item_name,
               quantity: parseFloat(quantity),
               unit: item.unit,
-              price_per_unit: item.price
+              price: item.price
             }),
           });
 
@@ -859,7 +859,7 @@
                   item_name: existingItem.item_name,
                   quantity: existingItem.quantity + parseFloat(invoiceItem.quantity),
                   unit: existingItem.unit,
-                  price_per_unit: invoiceItem.price
+                  price: invoiceItem.price
                 }),
               });
             } else {
@@ -870,7 +870,7 @@
                   item_name: invoiceItem.item_name,
                   quantity: parseFloat(invoiceItem.quantity),
                   unit: invoiceItem.unit,
-                  price_per_unit: invoiceItem.price
+                  price: invoiceItem.price
                 }),
               });
             }
