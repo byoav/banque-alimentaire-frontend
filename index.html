@@ -156,12 +156,13 @@
           if (response.ok) {
             const data = await response.json();
             // Adapter les données de l'API au format frontend
+            // Compatible avec price_per_unit OU price
             const formatted = data.map(item => ({
               id: item.id,
               item_name: item.item_name,
               quantity: parseFloat(item.quantity),
               unit: item.unit || 'unités',
-              price: parseFloat(item.price_per_unit) || 0
+              price: parseFloat(item.price_per_unit || item.price) || 0
             }));
             setInventory(formatted);
           }
@@ -1274,8 +1275,18 @@
                                   {item.item_name}
                                 </div>
                                 <div style={{ fontSize: '0.85rem', color: '#718096' }}>
-                                  {item.unit} {item.price > 0 && `• ${item.price.toFixed(2)}€/${item.unit}`}
+                                  {item.unit}
                                 </div>
+                                {item.price > 0 && (
+                                  <div style={{ 
+                                    color: '#2E5CFF', 
+                                    fontWeight: '600', 
+                                    fontSize: '0.9rem',
+                                    marginTop: '4px'
+                                  }}>
+                                    💰 {item.price.toFixed(2)}€ / {item.unit}
+                                  </div>
+                                )}
                               </div>
                               <div style={{ fontWeight: '700', color: '#2E5CFF', fontSize: '1.4rem' }}>
                                 {item.quantity}
@@ -2233,31 +2244,43 @@
                             ))}
                           </datalist>
                           
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                          {/* Quantité sur une ligne */}
+                          <div style={{ marginBottom: '8px' }}>
                             <input
                               type="number"
-                              placeholder="Qté"
+                              placeholder="Quantité"
                               value={newInvoiceItem.quantity || ''}
                               onChange={(e) => setNewInvoiceItem({ ...newInvoiceItem, quantity: parseFloat(e.target.value) || 0 })}
                               style={{
+                                width: '100%',
                                 padding: '12px',
                                 border: '2px solid #cbd5e0',
                                 borderRadius: '8px',
                                 fontSize: '16px'
                               }}
                             />
-                            <input
-                              type="text"
-                              placeholder="Unité"
+                          </div>
+
+                          {/* Unité et Prix sur une ligne (2 colonnes) */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                            <select
                               value={newInvoiceItem.unit}
                               onChange={(e) => setNewInvoiceItem({ ...newInvoiceItem, unit: e.target.value })}
                               style={{
                                 padding: '12px',
                                 border: '2px solid #cbd5e0',
                                 borderRadius: '8px',
-                                fontSize: '16px'
+                                fontSize: '16px',
+                                background: 'white'
                               }}
-                            />
+                            >
+                              <option value="unités">unités</option>
+                              <option value="kg">kg</option>
+                              <option value="L">L</option>
+                              <option value="paquets">paquets</option>
+                              <option value="boîtes">boîtes</option>
+                            </select>
+                            
                             <input
                               type="number"
                               placeholder="Prix €"
