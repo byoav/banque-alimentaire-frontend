@@ -785,6 +785,13 @@
       };
 
       const viewDistributionNeeds = (distributionId) => {
+        // Si on clique sur la même distribution, on ferme
+        if (selectedDistribution === distributionId) {
+          setSelectedDistribution(null);
+          setDistributionNeeds([]);
+          return;
+        }
+
         const dist = distributions.find(d => d.id === distributionId);
         const template = boxTemplates.find(t => t.id === parseInt(dist.template_id));
         
@@ -2178,7 +2185,8 @@
                                 style={{
                                   flex: 1,
                                   padding: '12px',
-                                  background: 'white',
+                                  background: selectedDistribution === dist.id ? '#2E5CFF' : 'white',
+                                  color: selectedDistribution === dist.id ? 'white' : '#2E5CFF',
                                   border: '2px solid #2E5CFF',
                                   borderRadius: '8px',
                                   fontWeight: '600',
@@ -2186,7 +2194,7 @@
                                   fontSize: '14px'
                                 }}
                               >
-                                📋 Besoins
+                                {selectedDistribution === dist.id ? '▲ Fermer' : '📋 Besoins'}
                               </button>
                               {dist.status !== 'completed' && (
                                 <button
