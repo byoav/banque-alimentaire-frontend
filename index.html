@@ -86,6 +86,170 @@
       return response;
     };
 
+    // ========== COMPOSANT CORBEILLE ==========
+    function TrashComponent() {
+      const [trashedItems, setTrashedItems] = React.useState([]);
+      const [loading, setLoading] = React.useState(true);
+      const [category, setCategory] = React.useState('inventory');
+
+      React.useEffect(() => {
+        loadTrashed();
+      }, [category]);
+
+      const loadTrashed = async () => {
+        setLoading(true);
+        try {
+          const response = await apiCall(`/trash/${category}`);
+          if (response.ok) {
+            const data = await response.json();
+            setTrashedItems(data);
+          }
+        } catch (err) {
+          console.error('Erreur:', err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const restore = async (id) => {
+        if (!confirm('Restaurer cet élément ?')) return;
+        
+        try {
+          const response = await apiCall(`/trash/restore/${category}/${id}`, {
+            method: 'POST'
+          });
+
+          if (response.ok) {
+            alert('✅ Élément restauré !');
+            await loadTrashed();
+          } else {
+            alert('❌ Erreur restauration');
+          }
+        } catch (err) {
+          alert('❌ Erreur connexion');
+        }
+      };
+
+      const deleteForever = async (id) => {
+        if (!confirm('⚠️ SUPPRIMER DÉFINITIVEMENT ? Cette action est irréversible !')) return;
+        
+        try {
+          const response = await apiCall(`/trash/${category}/${id}`, {
+            method: 'DELETE'
+          });
+
+          if (response.ok) {
+            alert('✅ Élément supprimé définitivement');
+            await loadTrashed();
+          } else {
+            alert('❌ Erreur suppression');
+          }
+        } catch (err) {
+          alert('❌ Erreur connexion');
+        }
+      };
+
+      return (
+        <div>
+          {/* Sélecteur de catégorie */}
+          <div style={{ marginBottom: '20px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            {[
+              { key: 'inventory', label: '📦 Inventaire' },
+              { key: 'box_templates', label: '📋 Cartons' },
+              { key: 'distributions', label: '🎁 Distributions' },
+              { key: 'invoices', label: '📄 Factures' }
+            ].map(cat => (
+              <button
+                key={cat.key}
+                onClick={() => setCategory(cat.key)}
+                style={{
+                  padding: '10px 20px',
+                  background: category === cat.key ? '#2E5CFF' : '#F3F4F6',
+                  color: category === cat.key ? 'white' : '#374151',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: category === cat.key ? '600' : '400'
+                }}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Liste des éléments */}
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#6B7280' }}>
+              Chargement...
+            </div>
+          ) : trashedItems.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#6B7280' }}>
+              🗑️ Corbeille vide pour cette catégorie
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {trashedItems.map(item => (
+                <div
+                  key={item.id}
+                  style={{
+                    padding: '15px',
+                    background: '#FEF2F2',
+                    border: '1px solid #FCA5A5',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '10px'
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: '600', marginBottom: '5px' }}>
+                      {item.item_name || item.template_name || item.supplier || 'Sans nom'}
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: '#6B7280' }}>
+                      Supprimé le {new Date(item.deleted_at).toLocaleDateString('fr-FR')}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                      onClick={() => restore(item.id)}
+                      style={{
+                        padding: '8px 16px',
+                        background: '#4ADE80',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontWeight: '500'
+                      }}
+                    >
+                      ♻️ Restaurer
+                    </button>
+                    <button
+                      onClick={() => deleteForever(item.id)}
+                      style={{
+                        padding: '8px 16px',
+                        background: '#DC2626',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontWeight: '500'
+                      }}
+                    >
+                      🗑️ Supprimer
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     function BanqueAlimentaireApp({ onLogout }) {
       // ========== RÔLE ET UTILISATEUR ==========
       const userRole = localStorage.getItem('ba_role') || 'user';
@@ -1045,6 +1209,32 @@
                   >
                     ⚙️ Paramètres
                   </button>
+
+                  {isAdmin && (
+                    <button
+                      onClick={() => {
+                        setActiveTab('trash');
+                        setMenuOpen(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '15px 20px',
+                        background: 'white',
+                        border: 'none',
+                        borderBottom: '1px solid #e2e8f0',
+                        cursor: 'pointer',
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        textAlign: 'left',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        color: '#DC2626'
+                      }}
+                    >
+                      🗑️ Corbeille
+                    </button>
+                  )}
 
                   <button
                     onClick={() => {
@@ -2075,6 +2265,33 @@
                       )}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* ========== ONGLET CORBEILLE ========== */}
+              {activeTab === 'trash' && (
+                <div>
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1a202c', marginBottom: '20px' }}>
+                    🗑️ Corbeille
+                  </h2>
+                  
+                  {!isAdmin ? (
+                    <div style={{
+                      padding: '40px',
+                      textAlign: 'center',
+                      background: '#FEF2F2',
+                      borderRadius: '10px',
+                      color: '#DC2626',
+                      border: '2px solid #FCA5A5'
+                    }}>
+                      <div style={{ fontSize: '3rem', marginBottom: '10px' }}>⚠️</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: '600' }}>
+                        Accès réservé aux administrateurs
+                      </div>
+                    </div>
+                  ) : (
+                    <TrashComponent />
+                  )}
                 </div>
               )}
 
