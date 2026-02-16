@@ -268,6 +268,8 @@
       
       // ========== VUE DÉTAIL ARTICLE ==========
       const [selectedArticle, setSelectedArticle] = useState(null);
+      const [editingArticleName, setEditingArticleName] = useState(false);
+      const [newArticleName, setNewArticleName] = useState('');
       
       // ========== CARTONS (connecté à l'API) ==========
       const [boxTemplates, setBoxTemplates] = useState([]);
@@ -666,6 +668,45 @@
         } catch (err) {
           console.error('Erreur:', err);
           alert('❌ Erreur de connexion');
+        } finally {
+          setInventorySaving(false);
+        }
+      };
+
+      // ========== RENOMMER UN ARTICLE (tous les lots) ==========
+      const renameArticle = async () => {
+        if (!newArticleName.trim()) {
+          alert('Veuillez entrer un nom');
+          return;
+        }
+
+        if (!selectedArticle || !selectedArticle.lots) {
+          return;
+        }
+
+        setInventorySaving(true);
+        try {
+          // Renommer tous les lots de cet article
+          for (const lot of selectedArticle.lots) {
+            await apiCall(`/inventory/${lot.id}`, {
+              method: 'PUT',
+              body: JSON.stringify({
+                item_name: newArticleName.trim(),
+                quantity: lot.quantity,
+                unit: lot.unit,
+                price: lot.price
+              }),
+            });
+          }
+
+          await loadInventory();
+          setEditingArticleName(false);
+          setNewArticleName('');
+          setSelectedArticle(null);
+          alert('✅ Article renommé !');
+        } catch (err) {
+          console.error('Erreur:', err);
+          alert('❌ Erreur lors du renommage');
         } finally {
           setInventorySaving(false);
         }
@@ -1494,9 +1535,81 @@
                         ← Retour au stock
                       </button>
 
-                      <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1a202c', marginBottom: '10px' }}>
-                        📦 {selectedArticle.displayName}
-                      </h2>
+                      {/* Titre avec bouton modifier */}
+                      {editingArticleName ? (
+                        <div style={{ marginBottom: '20px' }}>
+                          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                            <input
+                              type="text"
+                              value={newArticleName}
+                              onChange={(e) => setNewArticleName(e.target.value)}
+                              placeholder="Nouveau nom"
+                              style={{
+                                flex: 1,
+                                padding: '12px',
+                                border: '2px solid #2E5CFF',
+                                borderRadius: '8px',
+                                fontSize: '16px'
+                              }}
+                            />
+                            <button
+                              onClick={renameArticle}
+                              disabled={inventorySaving}
+                              style={{
+                                padding: '12px 20px',
+                                background: '#4ADE80',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                fontWeight: '600',
+                                cursor: inventorySaving ? 'not-allowed' : 'pointer'
+                              }}
+                            >
+                              {inventorySaving ? '⏳' : '✅'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingArticleName(false);
+                                setNewArticleName('');
+                              }}
+                              style={{
+                                padding: '12px 20px',
+                                background: '#f56565',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                fontWeight: '600',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              ❌
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '10px' }}>
+                          <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1a202c' }}>
+                            📦 {selectedArticle.displayName}
+                          </h2>
+                          <button
+                            onClick={() => {
+                              setEditingArticleName(true);
+                              setNewArticleName(selectedArticle.displayName);
+                            }}
+                            style={{
+                              padding: '8px 16px',
+                              background: '#edf2f7',
+                              border: 'none',
+                              borderRadius: '8px',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              fontWeight: '600'
+                            }}
+                          >
+                            ✏️ Renommer
+                          </button>
+                        </div>
+                      )}
                       
                       <div style={{
                         padding: '20px',
