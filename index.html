@@ -1325,6 +1325,29 @@
         });
       };
 
+      // ========== VOIR LE FICHIER DE LA FACTURE ==========
+      const viewInvoiceFile = async (invoiceId) => {
+        try {
+          const token = localStorage.getItem('ba_token');
+          const response = await fetch(`${API_URL}/invoices/${invoiceId}/file`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          
+          if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            window.open(url, '_blank');
+          } else {
+            alert('❌ Fichier non trouvé');
+          }
+        } catch (err) {
+          console.error('Erreur:', err);
+          alert('❌ Erreur lors du téléchargement');
+        }
+      };
+
       const deleteInvoice = async (id) => {
         if (!confirm('Supprimer cette facture ?')) return;
 
@@ -3285,7 +3308,7 @@
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          window.open(`${API_URL}/invoices/${invoice.id}/file`, '_blank');
+                                          viewInvoiceFile(invoice.id);
                                         }}
                                         style={{
                                           padding: '6px 12px',
