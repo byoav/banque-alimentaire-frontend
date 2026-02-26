@@ -280,7 +280,7 @@
       const [distributionsLoading, setDistributionsLoading] = useState(true);
       
       const [activeTab, setActiveTab] = useState('inventory');
-      const [newItem, setNewItem] = useState({ item_name: '', quantity: 0, unit: 'unités', price: 0 });
+      const [newItem, setNewItem] = useState({ item_name: '', quantity: '', unit: 'unités', price: '' });
       const [editingItem, setEditingItem] = useState(null);
       
       const [newTemplate, setNewTemplate] = useState({ template_name: '', description: '', items: [] });
@@ -312,14 +312,16 @@
         fileData: null,
         items: [],
         total: 0,
+        totalTTC: 0,
+        tva: 5.5,
         notes: ''
       });
       
       const [newInvoiceItem, setNewInvoiceItem] = useState({
         item_name: '',
-        quantity: 0,
+        quantity: '',
         unit: 'unités',
-        price: 0
+        price: ''
       });
 
       // ========== CHARGER L'INVENTAIRE DEPUIS L'API ==========
@@ -393,7 +395,12 @@
           const response = await apiCall('/invoices');
           if (response.ok) {
             const data = await response.json();
-            setInvoices(data);
+            // Convertir total en nombre pour éviter les erreurs
+            const formatted = data.map(inv => ({
+              ...inv,
+              total: parseFloat(inv.total) || 0
+            }));
+            setInvoices(formatted);
           }
         } catch (err) {
           console.error('Erreur chargement factures:', err);
@@ -557,7 +564,10 @@
         }
       };
       const addToInventory = async () => {
-        if (!newItem.item_name || newItem.quantity <= 0) {
+        const qty = parseFloat(newItem.quantity) || 0;
+        const prc = parseFloat(newItem.price) || 0;
+        
+        if (!newItem.item_name || qty <= 0) {
           alert('Veuillez remplir le nom et la quantité');
           return;
         }
@@ -571,20 +581,20 @@
 
           if (existingItem) {
             // Mettre à jour l'article existant
-            const newQuantity = existingItem.quantity + parseFloat(newItem.quantity);
+            const newQuantity = existingItem.quantity + qty;
             const response = await apiCall(`/inventory/${existingItem.id}`, {
               method: 'PUT',
               body: JSON.stringify({
                 item_name: existingItem.item_name,
                 quantity: newQuantity,
                 unit: existingItem.unit,
-                price: newItem.price > 0 ? newItem.price : existingItem.price
+                price: prc > 0 ? prc : existingItem.price
               }),
             });
 
             if (response.ok) {
               await loadInventory();
-              setNewItem({ item_name: '', quantity: 0, unit: 'unités', price: 0 });
+              setNewItem({ item_name: '', quantity: '', unit: 'unités', price: '' });
               alert(`✅ Quantité mise à jour : ${existingItem.item_name} = ${newQuantity} ${existingItem.unit}`);
             } else {
               const error = await response.json();
@@ -596,15 +606,15 @@
               method: 'POST',
               body: JSON.stringify({
                 item_name: newItem.item_name,
-                quantity: parseFloat(newItem.quantity),
+                quantity: qty,
                 unit: newItem.unit,
-                price: newItem.price || 0
+                price: prc
               }),
             });
 
             if (response.ok) {
               await loadInventory();
-              setNewItem({ item_name: '', quantity: 0, unit: 'unités', price: 0 });
+              setNewItem({ item_name: '', quantity: '', unit: 'unités', price: '' });
               alert('✅ Article ajouté !');
             } else {
               const error = await response.json();
@@ -1101,7 +1111,10 @@
       };
 
       const addToNewInvoice = () => {
-        if (newInvoiceItem.item_name && newInvoiceItem.quantity > 0 && newInvoiceItem.price > 0) {
+        const qty = parseFloat(newInvoiceItem.quantity) || 0;
+        const prc = parseFloat(newInvoiceItem.price) || 0;
+        
+        if (newInvoiceItem.item_name && qty > 0 && prc > 0) {
           const existingIndex = newInvoice.items.findIndex(item =>
             areNamesEquivalent(item.item_name, newInvoiceItem.item_name)
           );
@@ -1109,36 +1122,55 @@
           let updatedItems;
           if (existingIndex !== -1) {
             updatedItems = [...newInvoice.items];
-            updatedItems[existingIndex].quantity += parseFloat(newInvoiceItem.quantity);
-            updatedItems[existingIndex].price = parseFloat(newInvoiceItem.price);
+            updatedItems[existingIndex].quantity += qty;
+            updatedItems[existingIndex].price = prc;
             alert('✅ Quantité mise à jour');
           } else {
-            updatedItems = [...newInvoice.items, { ...newInvoiceItem }];
+            updatedItems = [...newInvoice.items, { 
+              ...newInvoiceItem,
+              quantity: qty,
+              price: prc
+            }];
           }
           
-          const total = updatedItems.reduce((sum, item) => 
-            sum + (item.quantity * item.price), 0
+          const totalHT = updatedItems.reduce((sum, item) => 
+            sum + (parseFloat(item.quantity) * parseFloat(item.price)), 0
           );
+          const totalTTC = totalHT * (1 + (parseFloat(newInvoice.tva) || 0) / 100);
           
           setNewInvoice({
             ...newInvoice,
             items: updatedItems,
-            total: total
+            total: totalHT,
+            totalTTC: totalTTC
           });
           
-          setNewInvoiceItem({ item_name: '', quantity: 0, unit: 'unités', price: 0 });
+          setNewInvoiceItem({ item_name: '', quantity: '', unit: 'unités', price: '' });
         }
+      };
+
+      // Recalculer TTC quand TVA change
+      const updateTVA = (newTva) => {
+        const tvaValue = parseFloat(newTva) || 0;
+        const totalTTC = newInvoice.total * (1 + tvaValue / 100);
+        setNewInvoice({
+          ...newInvoice,
+          tva: tvaValue,
+          totalTTC: totalTTC
+        });
       };
 
       const removeFromNewInvoice = (index) => {
         const updatedItems = newInvoice.items.filter((_, i) => i !== index);
-        const total = updatedItems.reduce((sum, item) => 
-          sum + (item.quantity * item.price), 0
+        const totalHT = updatedItems.reduce((sum, item) => 
+          sum + (parseFloat(item.quantity) * parseFloat(item.price)), 0
         );
+        const totalTTC = totalHT * (1 + (parseFloat(newInvoice.tva) || 0) / 100);
         setNewInvoice({
           ...newInvoice,
           items: updatedItems,
-          total: total
+          total: totalHT,
+          totalTTC: totalTTC
         });
       };
 
@@ -1737,10 +1769,16 @@
                           
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
                             <input
-                              type="number"
+                              type="text"
+                              inputMode="decimal"
                               placeholder="Quantité"
-                              value={newItem.quantity || ''}
-                              onChange={(e) => setNewItem({ ...newItem, quantity: parseFloat(e.target.value) || 0 })}
+                              value={newItem.quantity}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(',', '.');
+                                if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                  setNewItem({ ...newItem, quantity: val });
+                                }
+                              }}
                               style={{ 
                                 width: '100%', 
                                 padding: '14px', 
@@ -1765,11 +1803,16 @@
                             />
 
                             <input
-                              type="number"
+                              type="text"
+                              inputMode="decimal"
                               placeholder="Prix €"
-                              step="0.01"
-                              value={newItem.price || ''}
-                              onChange={(e) => setNewItem({ ...newItem, price: parseFloat(e.target.value) || 0 })}
+                              value={newItem.price}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(',', '.');
+                                if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                  setNewItem({ ...newItem, price: val });
+                                }
+                              }}
                               style={{ 
                                 width: '100%', 
                                 padding: '14px', 
@@ -2800,10 +2843,16 @@
                           {/* Quantité sur une ligne */}
                           <div style={{ marginBottom: '8px' }}>
                             <input
-                              type="number"
+                              type="text"
+                              inputMode="decimal"
                               placeholder="Quantité"
-                              value={newInvoiceItem.quantity || ''}
-                              onChange={(e) => setNewInvoiceItem({ ...newInvoiceItem, quantity: parseFloat(e.target.value) || 0 })}
+                              value={newInvoiceItem.quantity}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(',', '.');
+                                if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                  setNewInvoiceItem({ ...newInvoiceItem, quantity: val });
+                                }
+                              }}
                               style={{
                                 width: '100%',
                                 padding: '12px',
@@ -2835,11 +2884,16 @@
                             </select>
                             
                             <input
-                              type="number"
-                              placeholder="Prix €"
-                              step="0.01"
-                              value={newInvoiceItem.price || ''}
-                              onChange={(e) => setNewInvoiceItem({ ...newInvoiceItem, price: parseFloat(e.target.value) || 0 })}
+                              type="text"
+                              inputMode="decimal"
+                              placeholder="Prix HT €"
+                              value={newInvoiceItem.price}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(',', '.');
+                                if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                  setNewInvoiceItem({ ...newInvoiceItem, price: val });
+                                }
+                              }}
                               style={{
                                 padding: '12px',
                                 border: '2px solid #cbd5e0',
@@ -2889,7 +2943,7 @@
                                     {item.item_name}
                                   </div>
                                   <div style={{ fontSize: '0.85rem', color: '#718096' }}>
-                                    {item.quantity} {item.unit} × {item.price.toFixed(2)}€ = {(item.quantity * item.price).toFixed(2)}€
+                                    {item.quantity} {item.unit} × {parseFloat(item.price).toFixed(2)}€ = {(parseFloat(item.quantity) * parseFloat(item.price)).toFixed(2)}€ HT
                                   </div>
                                 </div>
                                 <button
@@ -2908,6 +2962,36 @@
                               </div>
                             ))}
                             
+                            {/* Sélecteur TVA */}
+                            <div style={{
+                              marginTop: '15px',
+                              padding: '12px',
+                              background: '#F3F4F6',
+                              borderRadius: '8px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '10px'
+                            }}>
+                              <span style={{ fontWeight: '600' }}>TVA :</span>
+                              <select
+                                value={newInvoice.tva}
+                                onChange={(e) => updateTVA(e.target.value)}
+                                style={{
+                                  padding: '8px 12px',
+                                  border: '2px solid #cbd5e0',
+                                  borderRadius: '6px',
+                                  fontSize: '16px',
+                                  background: 'white'
+                                }}
+                              >
+                                <option value="0">0%</option>
+                                <option value="5.5">5.5%</option>
+                                <option value="10">10%</option>
+                                <option value="20">20%</option>
+                              </select>
+                            </div>
+                            
                             <div style={{
                               marginTop: '15px',
                               padding: '15px',
@@ -2915,10 +2999,22 @@
                               borderRadius: '8px',
                               border: '2px solid #2E5CFF'
                             }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                <span style={{ fontSize: '1rem', fontWeight: '600', color: '#718096' }}>Total HT :</span>
+                                <span style={{ fontSize: '1.1rem', fontWeight: '600', color: '#718096' }}>
+                                  {newInvoice.total.toFixed(2)} €
+                                </span>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                <span style={{ fontSize: '0.9rem', color: '#718096' }}>TVA ({newInvoice.tva}%) :</span>
+                                <span style={{ fontSize: '0.9rem', color: '#718096' }}>
+                                  {(newInvoice.total * (newInvoice.tva / 100)).toFixed(2)} €
+                                </span>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '2px solid #2E5CFF' }}>
                                 <span style={{ fontSize: '1.1rem', fontWeight: '700' }}>Total TTC :</span>
                                 <span style={{ fontSize: '1.5rem', fontWeight: '700', color: '#2E5CFF' }}>
-                                  {newInvoice.total.toFixed(2)} €
+                                  {newInvoice.totalTTC.toFixed(2)} €
                                 </span>
                               </div>
                             </div>
