@@ -303,6 +303,8 @@
       const [invoicesLoading, setInvoicesLoading] = useState(true);
       
       const [showInvoices, setShowInvoices] = useState(false);
+      const [expandedInvoice, setExpandedInvoice] = useState(null);
+      const [editingInvoice, setEditingInvoice] = useState(null);
       
       const [newInvoice, setNewInvoice] = useState({
         supplier: '',
@@ -314,6 +316,7 @@
         total: 0,
         totalTTC: 0,
         tva: 5.5,
+        useTva: true,
         notes: ''
       });
       
@@ -1175,8 +1178,8 @@
       };
 
       const saveInvoice = async () => {
-        if (!newInvoice.supplier || !newInvoice.invoice_date || newInvoice.items.length === 0) {
-          alert('Remplir tous les champs');
+        if (!newInvoice.supplier || !newInvoice.invoice_date) {
+          alert('Veuillez remplir le fournisseur et la date');
           return;
         }
 
@@ -1187,8 +1190,8 @@
               supplier: newInvoice.supplier,
               invoice_number: newInvoice.invoice_number || '',
               invoice_date: newInvoice.invoice_date,
-              items: newInvoice.items,
-              total: newInvoice.total,
+              items: newInvoice.items || [],
+              total: newInvoice.useTva ? newInvoice.totalTTC : newInvoice.total,
               notes: newInvoice.notes || '',
               file_name: newInvoice.file || null,
               file_data: newInvoice.fileData || null
@@ -1205,6 +1208,9 @@
               fileData: null,
               items: [],
               total: 0,
+              totalTTC: 0,
+              tva: 5.5,
+              useTva: true,
               notes: ''
             });
             setShowInvoices(false);
@@ -1217,6 +1223,93 @@
           console.error('Erreur:', err);
           alert('❌ Erreur connexion');
         }
+      };
+
+      // ========== MODIFIER UNE FACTURE ==========
+      const startEditInvoice = (invoice) => {
+        setEditingInvoice({
+          ...invoice,
+          items: invoice.items || [],
+          tva: 5.5,
+          useTva: true,
+          total: parseFloat(invoice.total) || 0,
+          totalTTC: parseFloat(invoice.total) || 0
+        });
+        setExpandedInvoice(invoice.id);
+      };
+
+      const updateInvoice = async () => {
+        if (!editingInvoice) return;
+
+        try {
+          const response = await apiCall(`/invoices/${editingInvoice.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              supplier: editingInvoice.supplier,
+              invoice_number: editingInvoice.invoice_number || '',
+              invoice_date: editingInvoice.invoice_date,
+              items: editingInvoice.items || [],
+              total: editingInvoice.useTva ? editingInvoice.totalTTC : editingInvoice.total,
+              notes: editingInvoice.notes || '',
+              file_name: editingInvoice.file_name || null
+            }),
+          });
+
+          if (response.ok) {
+            await loadInvoices();
+            setEditingInvoice(null);
+            alert('✅ Facture mise à jour !');
+          } else {
+            const error = await response.json();
+            alert('❌ ' + (error.error || 'Erreur mise à jour'));
+          }
+        } catch (err) {
+          console.error('Erreur:', err);
+          alert('❌ Erreur connexion');
+        }
+      };
+
+      const addItemToEditingInvoice = () => {
+        if (!newInvoiceItem.item_name || !newInvoiceItem.quantity || !newInvoiceItem.price) return;
+        
+        const qty = parseFloat(newInvoiceItem.quantity) || 0;
+        const prc = parseFloat(newInvoiceItem.price) || 0;
+        
+        const updatedItems = [...(editingInvoice.items || []), {
+          item_name: newInvoiceItem.item_name,
+          quantity: qty,
+          unit: newInvoiceItem.unit,
+          price: prc
+        }];
+        
+        const totalHT = updatedItems.reduce((sum, item) => 
+          sum + (parseFloat(item.quantity) * parseFloat(item.price)), 0
+        );
+        const totalTTC = totalHT * (1 + (parseFloat(editingInvoice.tva) || 0) / 100);
+        
+        setEditingInvoice({
+          ...editingInvoice,
+          items: updatedItems,
+          total: totalHT,
+          totalTTC: totalTTC
+        });
+        
+        setNewInvoiceItem({ item_name: '', quantity: '', unit: 'unités', price: '' });
+      };
+
+      const removeItemFromEditingInvoice = (index) => {
+        const updatedItems = editingInvoice.items.filter((_, i) => i !== index);
+        const totalHT = updatedItems.reduce((sum, item) => 
+          sum + (parseFloat(item.quantity) * parseFloat(item.price)), 0
+        );
+        const totalTTC = totalHT * (1 + (parseFloat(editingInvoice.tva) || 0) / 100);
+        
+        setEditingInvoice({
+          ...editingInvoice,
+          items: updatedItems,
+          total: totalHT,
+          totalTTC: totalTTC
+        });
       };
 
       const deleteInvoice = async (id) => {
@@ -2962,34 +3055,71 @@
                               </div>
                             ))}
                             
-                            {/* Sélecteur TVA */}
+                            {/* Case à cocher TVA */}
                             <div style={{
                               marginTop: '15px',
                               padding: '12px',
                               background: '#F3F4F6',
-                              borderRadius: '8px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              gap: '10px'
+                              borderRadius: '8px'
                             }}>
-                              <span style={{ fontWeight: '600' }}>TVA :</span>
-                              <select
-                                value={newInvoice.tva}
-                                onChange={(e) => updateTVA(e.target.value)}
-                                style={{
-                                  padding: '8px 12px',
-                                  border: '2px solid #cbd5e0',
-                                  borderRadius: '6px',
-                                  fontSize: '16px',
-                                  background: 'white'
-                                }}
-                              >
-                                <option value="0">0%</option>
-                                <option value="5.5">5.5%</option>
-                                <option value="10">10%</option>
-                                <option value="20">20%</option>
-                              </select>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: newInvoice.useTva ? '10px' : '0' }}>
+                                <input
+                                  type="checkbox"
+                                  id="useTva"
+                                  checked={newInvoice.useTva}
+                                  onChange={(e) => {
+                                    const useTva = e.target.checked;
+                                    const totalTTC = useTva ? newInvoice.total * (1 + newInvoice.tva / 100) : newInvoice.total;
+                                    setNewInvoice({ ...newInvoice, useTva, totalTTC });
+                                  }}
+                                  style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                                />
+                                <label htmlFor="useTva" style={{ fontWeight: '600', cursor: 'pointer' }}>
+                                  Appliquer la TVA
+                                </label>
+                              </div>
+                              
+                              {newInvoice.useTva && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <span>Taux :</span>
+                                  <select
+                                    value={newInvoice.tva}
+                                    onChange={(e) => updateTVA(e.target.value)}
+                                    style={{
+                                      padding: '8px 12px',
+                                      border: '2px solid #cbd5e0',
+                                      borderRadius: '6px',
+                                      fontSize: '16px',
+                                      background: 'white'
+                                    }}
+                                  >
+                                    <option value="5.5">5.5%</option>
+                                    <option value="10">10%</option>
+                                    <option value="20">20%</option>
+                                  </select>
+                                  <span style={{ marginLeft: 'auto', color: '#718096' }}>
+                                    ou
+                                  </span>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    placeholder="Autre %"
+                                    style={{
+                                      width: '80px',
+                                      padding: '8px',
+                                      border: '2px solid #cbd5e0',
+                                      borderRadius: '6px',
+                                      fontSize: '16px'
+                                    }}
+                                    onChange={(e) => {
+                                      const val = e.target.value.replace(',', '.');
+                                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                        updateTVA(val);
+                                      }
+                                    }}
+                                  />
+                                </div>
+                              )}
                             </div>
                             
                             <div style={{
@@ -2999,24 +3129,35 @@
                               borderRadius: '8px',
                               border: '2px solid #2E5CFF'
                             }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                <span style={{ fontSize: '1rem', fontWeight: '600', color: '#718096' }}>Total HT :</span>
-                                <span style={{ fontSize: '1.1rem', fontWeight: '600', color: '#718096' }}>
-                                  {newInvoice.total.toFixed(2)} €
-                                </span>
-                              </div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                <span style={{ fontSize: '0.9rem', color: '#718096' }}>TVA ({newInvoice.tva}%) :</span>
-                                <span style={{ fontSize: '0.9rem', color: '#718096' }}>
-                                  {(newInvoice.total * (newInvoice.tva / 100)).toFixed(2)} €
-                                </span>
-                              </div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '2px solid #2E5CFF' }}>
-                                <span style={{ fontSize: '1.1rem', fontWeight: '700' }}>Total TTC :</span>
-                                <span style={{ fontSize: '1.5rem', fontWeight: '700', color: '#2E5CFF' }}>
-                                  {newInvoice.totalTTC.toFixed(2)} €
-                                </span>
-                              </div>
+                              {newInvoice.useTva ? (
+                                <>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '1rem', fontWeight: '600', color: '#718096' }}>Total HT :</span>
+                                    <span style={{ fontSize: '1.1rem', fontWeight: '600', color: '#718096' }}>
+                                      {newInvoice.total.toFixed(2)} €
+                                    </span>
+                                  </div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '0.9rem', color: '#718096' }}>TVA ({newInvoice.tva}%) :</span>
+                                    <span style={{ fontSize: '0.9rem', color: '#718096' }}>
+                                      {(newInvoice.total * (newInvoice.tva / 100)).toFixed(2)} €
+                                    </span>
+                                  </div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '2px solid #2E5CFF' }}>
+                                    <span style={{ fontSize: '1.1rem', fontWeight: '700' }}>Total TTC :</span>
+                                    <span style={{ fontSize: '1.5rem', fontWeight: '700', color: '#2E5CFF' }}>
+                                      {newInvoice.totalTTC.toFixed(2)} €
+                                    </span>
+                                  </div>
+                                </>
+                              ) : (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '1.1rem', fontWeight: '700' }}>Total :</span>
+                                  <span style={{ fontSize: '1.5rem', fontWeight: '700', color: '#2E5CFF' }}>
+                                    {newInvoice.total.toFixed(2)} €
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}
@@ -3038,11 +3179,11 @@
 
                         <button
                           onClick={saveInvoice}
-                          disabled={!newInvoice.supplier || !newInvoice.invoice_date || newInvoice.items.length === 0}
+                          disabled={!newInvoice.supplier || !newInvoice.invoice_date}
                           style={{
                             width: '100%',
                             padding: '16px',
-                            background: newInvoice.supplier && newInvoice.invoice_date && newInvoice.items.length > 0
+                            background: newInvoice.supplier && newInvoice.invoice_date
                               ? 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)'
                               : '#cbd5e0',
                             color: 'white',
@@ -3050,7 +3191,7 @@
                             borderRadius: '10px',
                             fontWeight: '700',
                             fontSize: '16px',
-                            cursor: newInvoice.supplier && newInvoice.invoice_date && newInvoice.items.length > 0 ? 'pointer' : 'not-allowed'
+                            cursor: newInvoice.supplier && newInvoice.invoice_date ? 'pointer' : 'not-allowed'
                           }}
                         >
                           💾 Enregistrer
@@ -3072,11 +3213,24 @@
                               style={{
                                 background: '#f8fafc',
                                 borderRadius: '12px',
-                                border: '2px solid #e2e8f0',
-                                padding: '15px'
+                                border: expandedInvoice === invoice.id ? '2px solid #2E5CFF' : '2px solid #e2e8f0',
+                                overflow: 'hidden'
                               }}
                             >
-                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                              {/* En-tête cliquable */}
+                              <div 
+                                onClick={() => {
+                                  setExpandedInvoice(expandedInvoice === invoice.id ? null : invoice.id);
+                                  setEditingInvoice(null);
+                                }}
+                                style={{ 
+                                  padding: '15px',
+                                  cursor: 'pointer',
+                                  display: 'flex', 
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center'
+                                }}
+                              >
                                 <div style={{ flex: 1 }}>
                                   <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '5px' }}>
                                     🏪 {invoice.supplier}
@@ -3086,89 +3240,247 @@
                                     {invoice.invoice_number && ` • N° ${invoice.invoice_number}`}
                                   </div>
                                   <div style={{ fontSize: '1rem', fontWeight: '700', color: '#2E5CFF', marginTop: '5px' }}>
-                                    💰 {invoice.total.toFixed(2)} €
+                                    💰 {parseFloat(invoice.total).toFixed(2)} €
+                                    {invoice.items && invoice.items.length > 0 && (
+                                      <span style={{ fontSize: '0.85rem', color: '#718096', fontWeight: '400', marginLeft: '10px' }}>
+                                        ({invoice.items.length} article{invoice.items.length > 1 ? 's' : ''})
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
-                                <button
-                                  onClick={() => deleteInvoice(invoice.id)}
-                                  style={{
-                                    padding: '8px 12px',
-                                    background: '#fed7d7',
-                                    border: 'none',
-                                    borderRadius: '8px',
-                                    cursor: 'pointer',
-                                    height: 'fit-content',
-                                    fontSize: '16px'
-                                  }}
-                                >
-                                  🗑️
-                                </button>
+                                <div style={{ fontSize: '1.5rem', color: '#718096' }}>
+                                  {expandedInvoice === invoice.id ? '▲' : '▼'}
+                                </div>
                               </div>
 
-                              {invoice.file && (
-                                <div style={{
-                                  background: 'white',
-                                  padding: '10px',
-                                  borderRadius: '8px',
-                                  marginBottom: '10px',
-                                  fontSize: '0.9rem'
-                                }}>
-                                  📎 {invoice.file}
-                                  {invoice.fileData && (
-                                    <a
-                                      href={invoice.fileData}
-                                      download={invoice.file}
-                                      style={{
-                                        marginLeft: '10px',
-                                        color: '#2E5CFF',
-                                        fontWeight: '600'
-                                      }}
-                                    >
-                                      📥 Télécharger
-                                    </a>
+                              {/* Contenu déplié */}
+                              {expandedInvoice === invoice.id && (
+                                <div style={{ padding: '0 15px 15px 15px', borderTop: '1px solid #e2e8f0' }}>
+                                  
+                                  {/* Pièce jointe */}
+                                  {invoice.file_name && (
+                                    <div style={{
+                                      background: '#EBF8FF',
+                                      padding: '12px',
+                                      borderRadius: '8px',
+                                      marginTop: '15px',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center'
+                                    }}>
+                                      <span>📎 {invoice.file_name}</span>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          window.open(`${API_URL}/invoices/${invoice.id}/file`, '_blank');
+                                        }}
+                                        style={{
+                                          padding: '6px 12px',
+                                          background: '#2E5CFF',
+                                          color: 'white',
+                                          border: 'none',
+                                          borderRadius: '6px',
+                                          cursor: 'pointer',
+                                          fontWeight: '600'
+                                        }}
+                                      >
+                                        👁️ Voir
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {/* Liste des articles */}
+                                  {invoice.items && invoice.items.length > 0 && (
+                                    <div style={{ background: 'white', borderRadius: '8px', padding: '10px', marginTop: '15px' }}>
+                                      <h4 style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '10px' }}>Articles :</h4>
+                                      {invoice.items.map((item, idx) => (
+                                        <div
+                                          key={idx}
+                                          style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            padding: '8px 0',
+                                            borderBottom: idx < invoice.items.length - 1 ? '1px solid #e2e8f0' : 'none',
+                                            fontSize: '0.9rem'
+                                          }}
+                                        >
+                                          <span>{item.item_name} ({item.quantity} {item.unit})</span>
+                                          <span style={{ fontWeight: '600' }}>
+                                            {parseFloat(item.price).toFixed(2)}€ → {(parseFloat(item.quantity) * parseFloat(item.price)).toFixed(2)}€
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {/* Notes */}
+                                  {invoice.notes && (
+                                    <div style={{ background: '#FEF3C7', padding: '10px', borderRadius: '8px', marginTop: '10px', fontSize: '0.9rem' }}>
+                                      📝 {invoice.notes}
+                                    </div>
+                                  )}
+
+                                  {/* Mode édition */}
+                                  {editingInvoice && editingInvoice.id === invoice.id ? (
+                                    <div style={{ marginTop: '15px', padding: '15px', background: '#F3F4F6', borderRadius: '10px' }}>
+                                      <h4 style={{ marginBottom: '15px', fontWeight: '700' }}>✏️ Modifier la facture</h4>
+                                      
+                                      {/* Ajouter un article */}
+                                      <div style={{ marginBottom: '15px' }}>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '8px' }}>Ajouter un article :</div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '8px' }}>
+                                          <input
+                                            type="text"
+                                            placeholder="Nom"
+                                            value={newInvoiceItem.item_name}
+                                            onChange={(e) => setNewInvoiceItem({...newInvoiceItem, item_name: e.target.value})}
+                                            style={{ padding: '10px', border: '1px solid #cbd5e0', borderRadius: '6px' }}
+                                          />
+                                          <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            placeholder="Qté"
+                                            value={newInvoiceItem.quantity}
+                                            onChange={(e) => {
+                                              const val = e.target.value.replace(',', '.');
+                                              if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                setNewInvoiceItem({...newInvoiceItem, quantity: val});
+                                              }
+                                            }}
+                                            style={{ padding: '10px', border: '1px solid #cbd5e0', borderRadius: '6px' }}
+                                          />
+                                          <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            placeholder="Prix"
+                                            value={newInvoiceItem.price}
+                                            onChange={(e) => {
+                                              const val = e.target.value.replace(',', '.');
+                                              if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                setNewInvoiceItem({...newInvoiceItem, price: val});
+                                              }
+                                            }}
+                                            style={{ padding: '10px', border: '1px solid #cbd5e0', borderRadius: '6px' }}
+                                          />
+                                          <button
+                                            onClick={addItemToEditingInvoice}
+                                            style={{ padding: '10px', background: '#4ADE80', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' }}
+                                          >
+                                            ➕
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {/* Liste des articles en édition */}
+                                      {editingInvoice.items && editingInvoice.items.length > 0 && (
+                                        <div style={{ marginBottom: '15px' }}>
+                                          {editingInvoice.items.map((item, idx) => (
+                                            <div key={idx} style={{ 
+                                              display: 'flex', 
+                                              justifyContent: 'space-between', 
+                                              alignItems: 'center',
+                                              padding: '8px',
+                                              background: 'white',
+                                              borderRadius: '6px',
+                                              marginBottom: '5px'
+                                            }}>
+                                              <span>{item.item_name} - {item.quantity} {item.unit} × {parseFloat(item.price).toFixed(2)}€</span>
+                                              <button
+                                                onClick={() => removeItemFromEditingInvoice(idx)}
+                                                style={{ padding: '4px 8px', background: '#fed7d7', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                              >
+                                                ❌
+                                              </button>
+                                            </div>
+                                          ))}
+                                          <div style={{ textAlign: 'right', fontWeight: '700', marginTop: '10px' }}>
+                                            Total : {editingInvoice.total.toFixed(2)}€ HT
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Boutons sauvegarder / annuler */}
+                                      <div style={{ display: 'flex', gap: '10px' }}>
+                                        <button
+                                          onClick={updateInvoice}
+                                          style={{ flex: 1, padding: '12px', background: '#4ADE80', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}
+                                        >
+                                          💾 Sauvegarder
+                                        </button>
+                                        <button
+                                          onClick={() => setEditingInvoice(null)}
+                                          style={{ flex: 1, padding: '12px', background: '#9CA3AF', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}
+                                        >
+                                          ❌ Annuler
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    /* Boutons d'action */
+                                    <div style={{ display: 'flex', gap: '10px', marginTop: '15px', flexWrap: 'wrap' }}>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          startEditInvoice(invoice);
+                                        }}
+                                        style={{
+                                          flex: 1,
+                                          minWidth: '120px',
+                                          padding: '12px',
+                                          background: '#F59E0B',
+                                          color: 'white',
+                                          border: 'none',
+                                          borderRadius: '8px',
+                                          fontWeight: '600',
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        ✏️ Modifier
+                                      </button>
+                                      
+                                      {invoice.items && invoice.items.length > 0 && (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            addInvoiceToStock(invoice);
+                                          }}
+                                          disabled={invoice.added_to_stock}
+                                          style={{
+                                            flex: 1,
+                                            minWidth: '120px',
+                                            padding: '12px',
+                                            background: invoice.added_to_stock ? '#cbd5e0' : '#2E5CFF',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            fontWeight: '600',
+                                            cursor: invoice.added_to_stock ? 'not-allowed' : 'pointer'
+                                          }}
+                                        >
+                                          {invoice.added_to_stock ? '✅ Ajouté' : '📦 → Stock'}
+                                        </button>
+                                      )}
+                                      
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          deleteInvoice(invoice.id);
+                                        }}
+                                        style={{
+                                          padding: '12px 16px',
+                                          background: '#fed7d7',
+                                          border: 'none',
+                                          borderRadius: '8px',
+                                          cursor: 'pointer',
+                                          fontWeight: '600'
+                                        }}
+                                      >
+                                        🗑️
+                                      </button>
+                                    </div>
                                   )}
                                 </div>
                               )}
-
-                              <div style={{ background: 'white', borderRadius: '8px', padding: '10px', marginBottom: '10px' }}>
-                                {invoice.items.map((item, idx) => (
-                                  <div
-                                    key={idx}
-                                    style={{
-                                      display: 'flex',
-                                      justifyContent: 'space-between',
-                                      padding: '6px 0',
-                                      borderBottom: idx < invoice.items.length - 1 ? '1px solid #e2e8f0' : 'none',
-                                      fontSize: '0.9rem'
-                                    }}
-                                  >
-                                    <span>{item.item_name} ({item.quantity} {item.unit})</span>
-                                    <span style={{ fontWeight: '700', color: '#2E5CFF' }}>
-                                      {(item.quantity * item.price).toFixed(2)}€
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-
-                              <button
-                                onClick={() => addInvoiceToStock(invoice)}
-                                disabled={invoice.addedToStock}
-                                style={{
-                                  width: '100%',
-                                  padding: '14px',
-                                  background: invoice.addedToStock
-                                    ? '#cbd5e0'
-                                    : 'linear-gradient(135deg, #2E5CFF 0%, #4ADE80 100%)',
-                                  color: 'white',
-                                  border: 'none',
-                                  borderRadius: '10px',
-                                  fontWeight: '700',
-                                  fontSize: '15px',
-                                  cursor: invoice.addedToStock ? 'not-allowed' : 'pointer'
-                                }}
-                              >
-                                {invoice.addedToStock ? '✅ Ajouté au stock' : '📦 Ajouter au stock'}
-                              </button>
                             </div>
                           ))}
                         </div>
