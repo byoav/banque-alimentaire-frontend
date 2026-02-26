@@ -1101,15 +1101,11 @@
       const handleInvoiceFileUpload = (e) => {
         const file = e.target.files[0];
         if (file) {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            setNewInvoice({
-              ...newInvoice,
-              file: file.name,
-              fileData: event.target.result
-            });
-          };
-          reader.readAsDataURL(file);
+          setNewInvoice({
+            ...newInvoice,
+            file: file.name,
+            fileObject: file
+          });
         }
       };
 
@@ -1184,18 +1180,26 @@
         }
 
         try {
-          const response = await apiCall('/invoices', {
+          const token = localStorage.getItem('ba_token');
+          const formData = new FormData();
+          formData.append('supplier', newInvoice.supplier);
+          formData.append('invoice_number', newInvoice.invoice_number || '');
+          formData.append('invoice_date', newInvoice.invoice_date);
+          formData.append('items', JSON.stringify(newInvoice.items || []));
+          formData.append('total', newInvoice.useTva ? newInvoice.totalTTC : newInvoice.total);
+          formData.append('notes', newInvoice.notes || '');
+          
+          // Ajouter le fichier si présent
+          if (newInvoice.fileObject) {
+            formData.append('file', newInvoice.fileObject);
+          }
+
+          const response = await fetch(`${API_URL}/invoices`, {
             method: 'POST',
-            body: JSON.stringify({
-              supplier: newInvoice.supplier,
-              invoice_number: newInvoice.invoice_number || '',
-              invoice_date: newInvoice.invoice_date,
-              items: newInvoice.items || [],
-              total: newInvoice.useTva ? newInvoice.totalTTC : newInvoice.total,
-              notes: newInvoice.notes || '',
-              file_name: newInvoice.file || null,
-              file_data: newInvoice.fileData || null
-            }),
+            headers: {
+              'Authorization': `Bearer ${token}`
+            },
+            body: formData
           });
 
           if (response.ok) {
@@ -1205,7 +1209,7 @@
               invoice_number: '',
               invoice_date: '',
               file: null,
-              fileData: null,
+              fileObject: null,
               items: [],
               total: 0,
               totalTTC: 0,
@@ -1242,17 +1246,26 @@
         if (!editingInvoice) return;
 
         try {
-          const response = await apiCall(`/invoices/${editingInvoice.id}`, {
+          const token = localStorage.getItem('ba_token');
+          const formData = new FormData();
+          formData.append('supplier', editingInvoice.supplier);
+          formData.append('invoice_number', editingInvoice.invoice_number || '');
+          formData.append('invoice_date', editingInvoice.invoice_date);
+          formData.append('items', JSON.stringify(editingInvoice.items || []));
+          formData.append('total', editingInvoice.useTva ? (editingInvoice.totalTTC || editingInvoice.total) : editingInvoice.total);
+          formData.append('notes', editingInvoice.notes || '');
+          
+          // Ajouter le nouveau fichier si présent
+          if (editingInvoice.newFile) {
+            formData.append('file', editingInvoice.newFile);
+          }
+
+          const response = await fetch(`${API_URL}/invoices/${editingInvoice.id}`, {
             method: 'PUT',
-            body: JSON.stringify({
-              supplier: editingInvoice.supplier,
-              invoice_number: editingInvoice.invoice_number || '',
-              invoice_date: editingInvoice.invoice_date,
-              items: editingInvoice.items || [],
-              total: editingInvoice.useTva ? editingInvoice.totalTTC : editingInvoice.total,
-              notes: editingInvoice.notes || '',
-              file_name: editingInvoice.file_name || null
-            }),
+            headers: {
+              'Authorization': `Bearer ${token}`
+            },
+            body: formData
           });
 
           if (response.ok) {
