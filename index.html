@@ -1369,53 +1369,27 @@
       };
 
       const addInvoiceToStock = async (invoice) => {
+        if (!invoice.items || invoice.items.length === 0) {
+          alert('❌ Aucun article dans cette facture');
+          return;
+        }
+        
         if (!confirm(`Ajouter les ${invoice.items.length} articles au stock ?`)) return;
 
         setInventorySaving(true);
         try {
-          for (const invoiceItem of invoice.items) {
-            const existingItem = inventory.find(item =>
-              areNamesEquivalent(item.item_name, invoiceItem.item_name)
-            );
-
-            if (existingItem) {
-              // Mettre à jour l'article existant
-              await apiCall(`/inventory/${existingItem.id}`, {
-                method: 'PUT',
-                body: JSON.stringify({
-                  item_name: existingItem.item_name,
-                  quantity: existingItem.quantity + parseFloat(invoiceItem.quantity),
-                  unit: existingItem.unit,
-                  price: invoiceItem.price
-                }),
-              });
-            } else {
-              // Créer un nouvel article
-              await apiCall('/inventory', {
-                method: 'POST',
-                body: JSON.stringify({
-                  item_name: invoiceItem.item_name,
-                  quantity: parseFloat(invoiceItem.quantity),
-                  unit: invoiceItem.unit,
-                  price: invoiceItem.price
-                }),
-              });
-            }
-          }
-
-          // Mettre à jour la facture pour marquer qu'elle a été ajoutée au stock
-          await apiCall(`/invoices/${invoice.id}`, {
-            method: 'PUT',
-            body: JSON.stringify({
-              ...invoice,
-              added_to_stock: true
-            }),
+          const response = await apiCall(`/invoices/${invoice.id}/add-to-stock`, {
+            method: 'POST'
           });
 
-          await loadInventory();
-          await loadInvoices();
-          
-          alert('✅ Stock mis à jour !');
+          if (response.ok) {
+            await loadInventory();
+            await loadInvoices();
+            alert('✅ Stock mis à jour !');
+          } else {
+            const error = await response.json();
+            alert('❌ ' + (error.error || 'Erreur lors de l\'ajout au stock'));
+          }
         } catch (err) {
           console.error('Erreur:', err);
           alert('❌ Erreur lors de l\'ajout au stock');
