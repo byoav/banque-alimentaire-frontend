@@ -476,21 +476,23 @@
           return;
         }
 
-        // Vérifier le stock disponible
+        // Vérifier le stock disponible (en comptant TOUS les lots)
         const insufficientItems = [];
         template.items.forEach(templateItem => {
           const totalNeeded = templateItem.quantity * dist.box_count;
-          const inventoryItem = inventory.find(invItem =>
+          
+          // Trouver TOUS les lots correspondants et additionner les quantités
+          const matchingLots = inventory.filter(invItem =>
             areNamesEquivalent(invItem.item_name, templateItem.item_name)
           );
-          const available = inventoryItem ? inventoryItem.quantity : 0;
+          const totalAvailable = matchingLots.reduce((sum, lot) => sum + lot.quantity, 0);
           
-          if (available < totalNeeded) {
+          if (totalAvailable < totalNeeded) {
             insufficientItems.push({
               name: templateItem.item_name,
               needed: totalNeeded,
-              available: available,
-              missing: totalNeeded - available
+              available: totalAvailable,
+              missing: totalNeeded - totalAvailable
             });
           }
         });
@@ -855,14 +857,18 @@
         }
         
         const needs = template.items.map(templateItem => {
-          const inventoryItem = inventory.find(invItem =>
+          // Trouver TOUS les lots correspondants et additionner
+          const matchingLots = inventory.filter(invItem =>
             areNamesEquivalent(invItem.item_name, templateItem.item_name)
           );
           
           const total_needed = templateItem.quantity * dist.box_count;
-          const available = inventoryItem ? inventoryItem.quantity : 0;
+          const available = matchingLots.reduce((sum, lot) => sum + lot.quantity, 0);
           const missing = Math.max(0, total_needed - available);
-          const price = inventoryItem ? inventoryItem.price || 0 : 0;
+          
+          // Prix moyen pondéré des lots
+          const totalValue = matchingLots.reduce((sum, lot) => sum + (lot.quantity * (lot.price || 0)), 0);
+          const price = available > 0 ? totalValue / available : 0;
           const missingCost = missing * price;
           
           return {
